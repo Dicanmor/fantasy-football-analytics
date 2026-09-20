@@ -3,10 +3,120 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FF Analytics</title>
+  <title>FF Analytics: power rankings, trade calculator, trade finder</title>
+  <meta name="description" content="Fantasy football analytics on open NFL data: connect your Sleeper league for power rankings and a roster-aware trade calculator.">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>FF Analytics</h1>
-  <p>Coming soon: matchup guide, trade calculator and team power rankings.</p>
+  <header class="top">
+    <h1>FF Analytics</h1>
+    <p class="muted" id="asof"></p>
+  </header>
+
+  <main>
+    <section class="card" id="connect">
+      <h2>Connect your Sleeper league</h2>
+      <p class="muted small">Read-only and no login: Sleeper's public API is queried straight from your browser. Nothing is stored except your username.</p>
+      <div class="row">
+        <label>Sleeper username <input id="username" autocomplete="off" placeholder="e.g. your_username"></label>
+        <label>Season <input id="season" type="number" min="2017" max="2030" class="narrow"></label>
+        <button id="connect-btn" class="primary">Find my leagues</button>
+      </div>
+      <div class="row hidden" id="league-row">
+        <label>League <select id="league-select"></select></label>
+        <button id="load-league-btn">Load league</button>
+      </div>
+      <details class="small"><summary>Or use a league ID</summary>
+        <div class="row"><label>League ID <input id="league-id" autocomplete="off" inputmode="numeric" placeholder="from the Sleeper league URL"></label>
+        <button id="load-id-btn">Load</button></div>
+      </details>
+      <p id="status" class="status" role="status"></p>
+      <ul id="warnings" class="warnings"></ul>
+    </section>
+
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="power" class="active">Power rankings</button>
+      <button role="tab" data-tab="trade">Trade calculator</button>
+      <button role="tab" data-tab="finder">Trade finder</button>
+      <button role="tab" data-tab="values">Player values</button>
+    </nav>
+
+    <section id="tab-power" class="tab"></section>
+
+    <section id="tab-trade" class="tab hidden">
+      <div class="card">
+        <h2>Trade calculator</h2>
+        <p class="muted small">Add players by name (works without Sleeper), or pick teams from your league to see how the trade changes <em>both</em> lineups.</p>
+        <div class="row hidden" id="trade-teams">
+          <label>Your team <select id="me-select"></select></label>
+          <label>Trade partner <select id="partner-select"></select></label>
+        </div>
+        <datalist id="player-options"></datalist>
+        <div class="two-col">
+          <div class="side">
+            <h3>You give</h3>
+            <input id="give-input" list="player-options" placeholder="Search a player…" autocomplete="off">
+            <div class="chips" id="give-chips"></div>
+            <div class="roster" id="give-roster"></div>
+          </div>
+          <div class="side">
+            <h3>You get</h3>
+            <input id="get-input" list="player-options" placeholder="Search a player…" autocomplete="off">
+            <div class="chips" id="get-chips"></div>
+            <div class="roster" id="get-roster"></div>
+          </div>
+        </div>
+      </div>
+      <div id="trade-result"></div>
+    </section>
+
+    <section id="tab-finder" class="tab hidden">
+      <div class="card">
+        <h2>Trade finder</h2>
+        <p class="muted small">Finds trades that fix the weakest spots of your lineup without gutting the other team. Needs a connected league.</p>
+        <div class="row">
+          <label>Your team <select id="finder-team"></select></label>
+          <div><span class="muted small">Only look for (optional)</span><div class="pills" id="finder-focus"></div></div>
+          <button id="finder-run" class="primary">Find trades</button>
+        </div>
+        <div id="finder-needs"></div>
+      </div>
+      <div id="finder-results"></div>
+    </section>
+
+    <section id="tab-values" class="tab hidden">
+      <div class="card">
+        <h2>Player values</h2>
+        <p class="muted small"><strong>Value</strong> = projected rest-of-season points above a replacement-level player, given expected games played (injury risk included).</p>
+        <details class="adjust-box">
+          <summary><strong>My adjustments</strong> <span class="muted small">(your ball knowledge: change a player's or a whole team's projection)</span></summary>
+          <p class="muted small">Type a ±PPG in the “Adj” column of any player (e.g. +2 for a rising role), or scale a whole offense by a % (e.g. +8% for an improved offense).
+            Everything (values, power rankings, trades, finder) recalculates. Saved in this browser only.</p>
+          <div class="row">
+            <label>Team <select id="adj-team"></select></label>
+            <label>Offense % <input id="adj-pct" type="number" step="1" class="narrow" placeholder="+8"></label>
+            <button id="adj-add">Apply to team</button>
+            <button id="adj-reset">Clear all adjustments</button>
+          </div>
+          <div class="chips" id="adj-list"></div>
+        </details>
+        <div class="row">
+          <div class="pills" id="pos-filter"></div>
+          <input id="values-search" placeholder="Filter by name…" autocomplete="off">
+        </div>
+        <div class="table-wrap"><table id="values-table"></table></div>
+        <p class="muted small" id="matchup-note"></p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="muted small">
+    Data: <a href="https://github.com/nflverse">nflverse</a> (CC-BY 4.0) and the read-only <a href="https://docs.sleeper.com/">Sleeper API</a> (non-commercial use).
+    Values are projections, not advice. <a href="https://github.com/YOUR-USER/fantasy-football-analytics">Source code</a>.
+  </footer>
+
+  <script src="data/player_values.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>

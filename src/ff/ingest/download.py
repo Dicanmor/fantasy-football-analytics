@@ -54,6 +54,7 @@ DATASETS: dict[str, Dataset] = {
         Dataset("injuries", nfl.load_injuries),
         Dataset("snap_counts", nfl.load_snap_counts, default_start=2013),  # no 2012 data
         Dataset("rosters", nfl.load_rosters),
+        Dataset("team_stats", nfl.load_team_stats, default_start=2022),  # defense stats for the DEF projection
         Dataset("rosters_weekly", nfl.load_rosters_weekly),  # IR/PUP status by week: catches injuries the report misses
         Dataset("ff_opportunity", nfl.load_ff_opportunity),
         Dataset("players", nfl.load_players, seasonal=False),

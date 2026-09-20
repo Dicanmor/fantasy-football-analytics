@@ -368,13 +368,16 @@ def player_risk(
     directory: pl.DataFrame,
     as_of_season: int,
     seasons_back: int = 3,
-    prior_games: float = 17.0,
+    prior_games: float = 170.0,
 ) -> pl.DataFrame:
     """Injury-proneness with age, for players on a roster in ``as_of_season``.
 
-    Rate = injury games missed / games on the roster. It is shrunk toward the average rate of players
-    with the same position and age bucket (worth ``prior_games`` games), so a player with two healthy
-    seasons is not rated "immune" and a rookie is not rated on one game.
+    Rate = injury games missed / games on the roster, shrunk toward the average rate of players with the same
+    position and age bucket (worth ``prior_games`` games). The default (170 games, ~10 seasons) makes the
+    position/age base rate dominate ON PURPOSE: in a backtest (2016-2025, predicting next season's games
+    missed) a player's own injury history had almost no predictive power (correlation 0.01-0.04) and the
+    error fell as the prior got heavier (RMSE 5.6 -> 5.1 games per 17). Injury *proneness* is mostly noise;
+    what does matter is a CURRENT injury, handled separately in the value model.
     """
     on_roster = (
         rosters_weekly.filter((pl.col("game_type") == "REG") & pl.col("status").is_in(ON_ROSTER)

@@ -5,9 +5,12 @@ from ff.league import League
 from ff.models.value import expected_remaining_absence, load_adjustments, project_ppg, remaining_games
 
 
-def test_replacement_rank_depends_on_league_size():
-    assert League(teams=12).replacement_rank("RB") == round(12 * (2 + 1.8))
+def test_replacement_rank_depends_on_league_size_and_flex():
+    assert League(teams=12).replacement_rank("RB") == round(12 * (2 + 0.45 + 1.8))   # default has 1 FLEX
+    no_flex = League(teams=12, slots=("QB", "RB", "RB", "WR", "WR", "TE", "K", "DEF"))
+    assert no_flex.replacement_rank("RB") == round(12 * (2 + 1.8))
     assert League(teams=10).replacement_rank("QB") == round(10 * (1 + 0.4))
+    assert League(teams=10).replacement_rank("K") == round(10 * 1.5)
 
 
 def test_remaining_games_skips_the_bye():

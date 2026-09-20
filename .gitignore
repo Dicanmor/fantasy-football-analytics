@@ -18,3 +18,6 @@ build/
 # Raw data is reproducible (ff-download) and big -> never commit it
 data/raw/*
 !data/raw/.gitkeep
+
+# Node
+node_modules/

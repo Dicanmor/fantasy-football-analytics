@@ -29,22 +29,28 @@ import polars as pl
 
 from ff.config import PROCESSED_DIR, ROOT
 from ff.data import load_raw
+from ff.features.defense import build_game_metrics, matchup_ratings
 from ff.features.injuries import IR_STATUSES, ON_ROSTER, build_all
-from ff.league import POSITIONS, League
+from ff.features.special import SLEEPER_TEAM, dst_games, kicker_games, project_special
+from ff.league import BENCH_SHARE, FLEX_SHARE, KD_DEPTH, POSITIONS, SLOT_ELIGIBLE, League
+from ff.models.value_common import WEEKS
 
-WEEKS = 18  # week-index granularity used for recency weights
+MATCHUP_FAVORABLE = 67  # matchup score (0-100) at or above this = "Favorable"
+MATCHUP_TOUGH = 33      # at or below this = "Tough"; in between = "Medium"
 MANUAL = ROOT / "data" / "manual" / "adjustments.csv"
-SITE_JSON = ROOT / "site" / "data" / "player_values.json"
+SITE_JSON = ROOT / "site" / "data" / "player_values.json"  # its folder also gets player_values.js
 
 
 # --------------------------------------------------------------------------- inputs
-def current_roster(rosters_weekly: pl.DataFrame, as_of: tuple[int, int]) -> pl.DataFrame:
-    """Skill players currently on a roster (latest weekly row up to ``as_of``), with sleeper_id and age."""
+def current_roster(
+    rosters_weekly: pl.DataFrame, as_of: tuple[int, int], positions: tuple[str, ...] = POSITIONS
+) -> pl.DataFrame:
+    """Players currently on a roster (latest weekly row up to ``as_of``), with sleeper_id and age."""
     season, week = as_of
     return (
         rosters_weekly.filter(
             (pl.col("season") == season) & (pl.col("game_type") == "REG") & (pl.col("week") <= week)
-            & pl.col("position").is_in(POSITIONS)
+            & pl.col("position").is_in(list(positions))
         )
         .sort("week")
         .group_by("gsis_id")
@@ -87,11 +93,14 @@ def project_ppg(
     min_share: float = 0.2,
     prior_k: float = 4.0,
     window_seasons: int = 3,
+    season_boost: float = 3.0,
 ) -> tuple[pl.DataFrame, dict[str, float]]:
     """Projected PPG for every active player + replacement PPG per position.
 
     Games where the player had < ``min_share`` of the offensive snaps are ignored (the game he got hurt in,
-    garbage time): they say little about his role. Weights halve every ``half_life`` weeks.
+    garbage time): they say little about his role. Weights halve every ``half_life`` weeks, and games of the
+    current season count ``season_boost`` times more (roles change over the offseason; in backtests a boost of
+    3 cut the error ~4% versus no boost, while a shorter half-life made it worse).
     """
     season, week = as_of
     now_t = season * WEEKS + week
@@ -101,7 +110,10 @@ def project_ppg(
             & (pl.col("offense_pct") >= min_share) & pl.col("ppr").is_not_null()
         )
         .join(active.select("gsis_id", "position"), on="gsis_id", how="inner")
-        .with_columns(w=0.5 ** ((now_t - (pl.col("season") * WEEKS + pl.col("week"))) / half_life))
+        .with_columns(
+            w=0.5 ** ((now_t - (pl.col("season") * WEEKS + pl.col("week"))) / half_life)
+            * pl.when(pl.col("season") == season).then(season_boost).otherwise(1.0)
+        )
     )
     agg = (
         hist.group_by("gsis_id")
@@ -225,30 +237,87 @@ def availability(
     )
 
 
-# --------------------------------------------------------------------------- assembly
-def build_player_values(league: League, as_of: tuple[int, int]) -> tuple[pl.DataFrame, dict[str, float]]:
+# --------------------------------------------------------------------------- context (matchup, role)
+def matchup_scores(as_of: tuple[int, int]) -> pl.DataFrame:
+    """Opponent and matchup score (0-100, 100 = easiest defense for that position) for the as_of week.
+
+    Score = 100 x (32 - rank) / 31, where rank 1 = the defense that allows the most fantasy points to the
+    position (recency-weighted, last 2 seasons; see ``ff.features.defense``). In backtests this signal was weak
+    (correlation ~0.06-0.12 with actual points allowed), so the site shows it as context, not as a forecast.
+    """
     season, week = as_of
-    rw = load_raw("rosters_weekly")
-    injuries = load_raw("injuries")
-    tables = build_all(season)
-
-    active = current_roster(rw, as_of)
-    proj, replacement = project_ppg(tables["log"], tables["directory"], active, league, as_of)
-    players = (
-        active.join(proj.select("gsis_id", "games", "eff_games", "raw_ppg", "proj_ppg", "replacement_ppg"), on="gsis_id")
-        .join(remaining_games(load_raw("schedules"), as_of), on="team", how="left")
-        .with_columns(pl.col("remaining").fill_null(0))
+    stats = load_raw("player_stats", seasons=[season - 2, season - 1, season])
+    ratings = matchup_ratings(build_game_metrics(stats, "ppr"), as_of).filter(pl.col("metric").str.starts_with("pts_"))
+    n = ratings["defense"].n_unique()
+    sched = load_raw("schedules").filter(
+        (pl.col("season") == season) & (pl.col("week") == week) & (pl.col("game_type") == "REG")
     )
-    players = availability(players, tables, injuries, as_of)
+    sides = pl.concat(
+        [sched.select(team="home_team", opp="away_team"), sched.select(team="away_team", opp="home_team")]
+    )
+    return (
+        sides.join(ratings.select("defense", "metric", "rank"), left_on="opp", right_on="defense")
+        .with_columns(
+            position=pl.col("metric").str.replace("pts_", ""),
+            mu=(100 * (n - pl.col("rank")) / (n - 1)).round(0).cast(pl.Int32),
+        )
+        .select("team", "position", "opp", "mu")
+    )
 
-    # Manual adjustments: by gsis_id, else by (case-insensitive) name.
+
+def role_context(players: pl.DataFrame, as_of: tuple[int, int]) -> pl.DataFrame:
+    """Share of the team's rush+target opportunities (last 4 games vs. last season) and the main teammate at
+    the same position, so a committee (e.g. two RBs splitting carries) is visible."""
+    season, week = as_of
+    fo = (
+        load_raw("ff_opportunity", seasons=[season - 1, season])
+        .with_columns(pl.col("season").cast(pl.Int32), pl.col("week").cast(pl.Int32))
+        .filter(pl.col("season") * 100 + pl.col("week") < season * 100 + week)
+        .select(
+            gsis_id="player_id", season="season", week="week",
+            opp=pl.col("rush_attempt").fill_null(0) + pl.col("rec_attempt").fill_null(0),
+            opp_team=pl.col("rush_attempt_team").fill_null(0) + pl.col("rec_attempt_team").fill_null(0),
+        )
+        .filter(pl.col("opp_team") > 0)
+        .with_columns(share=pl.col("opp") / pl.col("opp_team"))
+        .unique(["gsis_id", "season", "week"])
+        .sort("gsis_id", "season", "week")
+    )
+    now = fo.group_by("gsis_id").agg(pl.col("share").tail(4).mean().alias("share_now"))
+    prev = fo.filter(pl.col("season") == season - 1).group_by("gsis_id").agg(pl.col("share").mean().alias("share_prev"))
+    df = (
+        players.filter(pl.col("position") != "QB").select("gsis_id", "team", "position", "full_name")
+        .join(now, on="gsis_id", how="left").join(prev, on="gsis_id", how="left")
+    )
+    mates = (
+        df.select("gsis_id", "team", "position")
+        .join(df.select(mate_id="gsis_id", team="team", position="position", mate="full_name", mate_share="share_now"),
+              on=["team", "position"])
+        .filter((pl.col("gsis_id") != pl.col("mate_id")) & pl.col("mate_share").is_not_null())
+        .sort("mate_share", descending=True)
+        .group_by("gsis_id", maintain_order=True)
+        .first()
+        .select("gsis_id", "mate", "mate_share")
+    )
+    return df.select("gsis_id", "share_now", "share_prev").join(mates, on="gsis_id", how="left")
+
+
+# --------------------------------------------------------------------------- assembly
+def _adjustments_frame() -> tuple[pl.DataFrame, pl.DataFrame]:
     adj = load_adjustments()
-    by_id = adj.filter(pl.col("gsis_id").is_not_null() & (pl.col("gsis_id") != "")).select("gsis_id", d_id="ppg_delta", n_id="note")
-    by_name = (
-        adj.filter(pl.col("gsis_id").is_null() | (pl.col("gsis_id") == ""))
-        .select(name_lc=pl.col("name").str.to_lowercase(), d_nm="ppg_delta", n_nm="note")
+    by_id = adj.filter(pl.col("gsis_id").is_not_null() & (pl.col("gsis_id") != "")).select(
+        "gsis_id", d_id="ppg_delta", n_id="note"
     )
-    players = (
+    by_name = adj.filter(pl.col("gsis_id").is_null() | (pl.col("gsis_id") == "")).select(
+        name_lc=pl.col("name").str.to_lowercase(), d_nm="ppg_delta", n_nm="note"
+    )
+    return by_id, by_name
+
+
+def _score(players: pl.DataFrame) -> pl.DataFrame:
+    """Manual adjustments, expected games, availability, VORP and value (needs replacement_ppg column)."""
+    by_id, by_name = _adjustments_frame()
+    return (
         players.with_columns(name_lc=pl.col("full_name").str.to_lowercase())
         .join(by_id, on="gsis_id", how="left")
         .join(by_name, on="name_lc", how="left")
@@ -257,10 +326,7 @@ def build_player_values(league: League, as_of: tuple[int, int]) -> tuple[pl.Data
             adj_note=pl.coalesce("n_id", "n_nm"),
         )
         .drop("name_lc", "d_id", "d_nm", "n_id", "n_nm")
-    )
-
-    players = (
-        players.with_columns(
+        .with_columns(
             final_ppg=pl.col("proj_ppg") + pl.col("adj_ppg"),
             exp_games=(
                 (pl.col("remaining") - pl.col("absence_now").clip(upper_bound=pl.col("remaining"))).clip(lower_bound=0)
@@ -271,45 +337,140 @@ def build_player_values(league: League, as_of: tuple[int, int]) -> tuple[pl.Data
             availability=pl.when(pl.col("remaining") > 0).then(pl.col("exp_games") / pl.col("remaining")).otherwise(0.0),
             vorp=(pl.col("final_ppg") - pl.col("replacement_ppg")) * pl.col("exp_games"),
         )
+        .with_columns(exp_ppg=pl.col("final_ppg") * pl.col("availability"), value=pl.col("vorp").clip(lower_bound=0))
+    )
+
+
+def _replacement(table: pl.DataFrame, pos: str, league: League) -> tuple[float, list[float]]:
+    vals = table.filter((pl.col("position") == pos) & (pl.col("games") >= 6)).sort("raw_ppg", descending=True)["raw_ppg"]
+    if not len(vals):
+        return 0.0, []
+    return float(vals[min(league.replacement_rank(pos), len(vals)) - 1]), [round(float(v), 2) for v in vals]
+
+
+def build_player_values(
+    league: League, as_of: tuple[int, int], tables: dict[str, pl.DataFrame] | None = None
+) -> tuple[pl.DataFrame, dict[str, float], dict[str, list[float]]]:
+    """Values for QB/RB/WR/TE plus K and DEF. Returns (players, replacement PPG per position, ppg pools).
+
+    ``tables`` (from ``build_all``) can be passed in to avoid recomputing the injury tables.
+    """
+    season, week = as_of
+    rw = load_raw("rosters_weekly")
+    injuries = load_raw("injuries")
+    tables = tables or build_all(season)
+
+    active = current_roster(rw, as_of)
+    proj, replacement = project_ppg(tables["log"], tables["directory"], active, league, as_of)
+    players = (
+        active.join(proj.select("gsis_id", "games", "eff_games", "raw_ppg", "proj_ppg", "replacement_ppg"), on="gsis_id")
+        .join(remaining_games(load_raw("schedules"), as_of), on="team", how="left")
+        .with_columns(pl.col("remaining").fill_null(0))
+    )
+    players = availability(players, tables, injuries, as_of)
+
+    # pools of raw PPG (players with >= 6 games) so the website can recompute replacement for ITS league
+    pools: dict[str, list[float]] = {}
+    for pos in POSITIONS:
+        pools[pos] = _replacement(players.with_columns(games=pl.col("games")), pos, league)[1]
+
+    # ---- kickers and team defenses
+    ps = load_raw("player_stats")
+    schedules = load_raw("schedules")
+    kact = current_roster(rw, as_of, positions=("K",)).with_columns(position=pl.lit("K"))
+    kproj = project_special(kicker_games(ps), "gsis_id", kact, as_of)
+    teams = pl.DataFrame({"team": sorted(set(schedules.filter(pl.col("season") == season)["home_team"].to_list()))})
+    dproj = project_special(dst_games(load_raw("team_stats"), schedules), "team", teams, as_of).with_columns(
+        gsis_id=pl.col("team"), full_name=pl.col("team") + " D/ST", position=pl.lit("DEF"),
+        sleeper_id=pl.col("team").replace(SLEEPER_TEAM), age=pl.lit(None, dtype=pl.Float64),
+        status=pl.lit("ACT"), birth_date=pl.lit(None, dtype=pl.Date),
+    )
+    special = pl.concat([kproj.select(*_SPECIAL_COLS), dproj.select(*_SPECIAL_COLS)], how="vertical_relaxed")
+    for pos in ("K", "DEF"):
+        replacement[pos], pools[pos] = _replacement(special, pos, league)
+    special = (
+        special.join(pl.DataFrame({"position": ["K", "DEF"], "replacement_ppg": [replacement["K"], replacement["DEF"]]}), on="position")
+        .join(remaining_games(schedules, as_of), on="team", how="left")
         .with_columns(
-            exp_ppg=pl.col("final_ppg") * pl.col("availability"),
-            value=pl.col("vorp").clip(lower_bound=0),
+            pl.col("remaining").fill_null(0), absence_now=pl.lit(0.0), base_miss_rate=pl.lit(0.0),
+            report_status=pl.lit(None, dtype=pl.String), most_common_injury=pl.lit(None, dtype=pl.String),
         )
+    )
+
+    players = _score(players)
+    special = _score(special)
+
+    # ---- context: matchup + role
+    mu = matchup_scores(as_of)
+    role = role_context(players, as_of)
+    players = players.join(mu, on=["team", "position"], how="left").join(role, on="gsis_id", how="left")
+    special = special.with_columns(
+        opp=pl.lit(None, dtype=pl.String), mu=pl.lit(None, dtype=pl.Int32), share_now=pl.lit(None, dtype=pl.Float64),
+        share_prev=pl.lit(None, dtype=pl.Float64), mate=pl.lit(None, dtype=pl.String), mate_share=pl.lit(None, dtype=pl.Float64),
+    )
+
+    cols = _OUT_COLS
+    out = (
+        pl.concat([players.select(cols), special.select(cols)], how="vertical_relaxed")
         .with_columns(
             overall_rank=pl.col("value").rank("ordinal", descending=True).cast(pl.Int32),
             pos_rank=pl.col("value").rank("ordinal", descending=True).over("position").cast(pl.Int32),
         )
-        .select(
-            "gsis_id", "sleeper_id", "full_name", "position", "team", "age", "status", "report_status",
-            "games", pl.col("raw_ppg").round(2), pl.col("proj_ppg").round(2), pl.col("adj_ppg"), "adj_note",
-            pl.col("replacement_ppg").round(2), "remaining", pl.col("absence_now").round(1),
-            pl.col("base_miss_rate").round(3), "most_common_injury", pl.col("exp_games").round(1),
-            pl.col("availability").round(2), pl.col("exp_ppg").round(2), pl.col("vorp").round(1),
-            pl.col("value").round(1), "overall_rank", "pos_rank",
-        )
         .sort("overall_rank")
     )
-    return players, replacement
+    return out, replacement, pools
 
 
-def export_json(players: pl.DataFrame, league: League, replacement: dict[str, float], as_of: tuple[int, int], path=SITE_JSON) -> None:
-    """Static JSON for the website, keyed by Sleeper player id (so a Sleeper roster can be scored in the browser)."""
+_SPECIAL_COLS = ["gsis_id", "sleeper_id", "full_name", "position", "team", "age", "status", "games", "raw_ppg", "proj_ppg"]
+_OUT_COLS = [
+    "gsis_id", "sleeper_id", "full_name", "position", "team", "age", "status", "report_status", "games", "raw_ppg",
+    "proj_ppg", "adj_ppg", "final_ppg", "adj_note", "replacement_ppg", "remaining", "absence_now", "base_miss_rate",
+    "most_common_injury", "exp_games", "availability", "exp_ppg", "vorp", "value",
+    "opp", "mu", "share_now", "share_prev", "mate", "mate_share",
+]
+
+
+def _model_constants() -> dict:
+    return {
+        "slot_eligible": {k: list(v) for k, v in SLOT_ELIGIBLE.items()},
+        "flex_share": FLEX_SHARE, "bench_share": BENCH_SHARE, "kd_depth": KD_DEPTH,
+        "matchup": {"favorable": MATCHUP_FAVORABLE, "tough": MATCHUP_TOUGH},
+    }
+
+
+def export_site_data(
+    players: pl.DataFrame, pools: dict[str, list[float]], league: League, as_of: tuple[int, int],
+    directory=SITE_JSON.parent,
+) -> None:
+    """Static data for the website, keyed by Sleeper player id.
+
+    Writes ``player_values.json`` (tooling) and ``player_values.js`` (sets ``window.FF_DATA``, so the page also
+    works when opened from disk). Replacement levels are NOT stored: the browser recomputes them from ``pools``
+    for the connected league (its size and lineup), and re-derives value after the user's own adjustments.
+    """
+    r = lambda v, d=2: None if v is None else round(v, d)  # noqa: E731
     rows = players.filter(pl.col("sleeper_id").is_not_null())
     payload = {
         "as_of": {"season": as_of[0], "week": as_of[1]},
-        "league": {"teams": league.teams, "starters": league.starters, "bench": league.bench, "scoring": "ppr"},
-        "replacement_ppg": {k: round(v, 2) for k, v in replacement.items()},
+        "default_league": {"teams": league.teams, "slots": list(league.slots), "bench": league.bench, "ir": league.ir},
+        "model": _model_constants(),
+        "pools": pools,
         "players": {
-            str(r["sleeper_id"]): {
-                "name": r["full_name"], "pos": r["position"], "team": r["team"], "age": r["age"],
-                "ppg": r["proj_ppg"], "exp_ppg": r["exp_ppg"], "exp_games": r["exp_games"],
-                "value": r["value"], "status": r["report_status"],
+            str(x["sleeper_id"]): {
+                "name": x["full_name"], "pos": x["position"], "team": x["team"], "age": x["age"],
+                "ppg": r(x["final_ppg"] if "final_ppg" in x else x["proj_ppg"]),
+                "avail": r(x["availability"]), "exp_games": r(x["exp_games"], 1), "remaining": x["remaining"],
+                "value": r(x["value"], 1), "status": x["report_status"] or ("IR" if x["status"] in IR_STATUSES else None),
+                "opp": x["opp"], "mu": x["mu"], "share": r(x["share_now"], 3), "share_prev": r(x["share_prev"], 3),
+                "mate": x["mate"], "mate_share": r(x["mate_share"], 3),
             }
-            for r in rows.iter_rows(named=True)
+            for x in rows.iter_rows(named=True)
         },
     }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+    text = json.dumps(payload, separators=(",", ":"))
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "player_values.json").write_text(text, encoding="utf-8")
+    (directory / "player_values.js").write_text(f"window.FF_DATA = {text};\n", encoding="utf-8")
 
 
 # --------------------------------------------------------------------------- backtest
@@ -368,7 +529,7 @@ def main(argv: list[str] | None = None) -> None:
     import nflreadpy as nfl
 
     p = argparse.ArgumentParser(description="Build player values (rest-of-season points over replacement).")
-    p.add_argument("--teams", type=int, default=12, help="teams in the league (sets replacement level)")
+    p.add_argument("--teams", type=int, default=12, help="teams in the default league (the site recomputes for yours)")
     p.add_argument("--season", type=int, default=None)
     p.add_argument("--week", type=int, default=None)
     p.add_argument("--evaluate", action="store_true", help="backtest the PPG projection and exit")
@@ -380,13 +541,13 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     as_of = (a.season or nfl.get_current_season(), a.week or nfl.get_current_week())
-    players, replacement = build_player_values(league, as_of)
+    players, replacement, pools = build_player_values(league, as_of)
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     players.write_csv(PROCESSED_DIR / "player_values.csv")
-    export_json(players, league, replacement, as_of)
-    print(f"As of {as_of[0]} week {as_of[1]} | {league.teams} teams | replacement PPG: "
-          + ", ".join(f"{k} {v:.1f}" for k, v in replacement.items()))
-    print(players.select("overall_rank", "full_name", "position", "team", "proj_ppg", "exp_games", "value").head(20))
+    export_site_data(players, pools, league, as_of)
+    print(f"As of {as_of[0]} week {as_of[1]} | default league: {league.teams} teams, slots {list(league.slots)}")
+    print("replacement PPG: " + ", ".join(f"{k} {v:.1f}" for k, v in replacement.items()))
+    print(players.select("overall_rank", "full_name", "position", "team", "proj_ppg", "exp_games", "value", "opp", "mu").head(12))
 
 
 if __name__ == "__main__":

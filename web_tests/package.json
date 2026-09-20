@@ -1,0 +1,10 @@
+{
+  "name": "ff-analytics-web-tests",
+  "private": true,
+  "scripts": {
+    "test": "node core.test.js && node smoke.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.0"
+  }
+}

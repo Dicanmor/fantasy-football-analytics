@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ff-analytics"
+version = "0.1.0"
+description = "Fantasy football analytics: matchup guide, trade calculator, power rankings and injury impact, built on nflverse data."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "nflreadpy>=0.1.5",
+    "polars>=1.0",
+]
+
+[project.optional-dependencies]
+analysis = ["pandas", "pyarrow", "scikit-learn", "jupyterlab", "matplotlib"]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+ff-download = "ff.ingest.download:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ff"]
+
+[tool.ruff]
+line-length = 100

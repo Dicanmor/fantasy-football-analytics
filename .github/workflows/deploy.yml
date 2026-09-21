@@ -2,7 +2,7 @@ name: Refresh data and deploy site
 
 on:
   schedule:
-    - cron: "0 12 * * 2"      # Tuesdays 12:00 UTC, after Monday night football
+    - cron: "0 11 * * *"      # every day 11:00 UTC (5:00 in Guadalajara); injuries and stats change daily in season
   workflow_dispatch:           # run it by hand from the Actions tab
   push:
     branches: [main]
@@ -29,6 +29,12 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest -q
       - run: node web_tests/core.test.js
+      # Keep downloaded data between runs: finished seasons are skipped, so a daily run only fetches the current season.
+      - uses: actions/cache@v4
+        with:
+          path: data/raw
+          key: raw-${{ github.run_id }}
+          restore-keys: raw-
       # The value model does not need play-by-play, so skip the big dataset.
       - run: ff-download --datasets player_stats snap_counts rosters_weekly injuries schedules players ff_opportunity team_stats
       - run: python -m ff.models.value

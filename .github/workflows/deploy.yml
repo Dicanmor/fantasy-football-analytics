@@ -5,7 +5,7 @@ on:
     - cron: "0 11 * * *"      # every day 11:00 UTC (5:00 in Guadalajara); injuries and stats change daily in season
   workflow_dispatch:           # run it by hand from the Actions tab
   push:
-    branches: [main]
+    branches: [master]
     paths: ["site/**", "src/**", ".github/workflows/deploy.yml"]
 
 permissions:

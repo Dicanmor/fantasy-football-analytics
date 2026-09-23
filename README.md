@@ -14,7 +14,7 @@ The goal is a fast, easy-to-use website that answers the questions I actually as
 | **Injury analysis** | How long do injuries last, how do stats change after a return, does injury history predict anything? | ✅ Done (findings below) |
 | **Player value model** | Rest-of-season points over replacement, rank/position badges, S-F tiers, and your own adjustments | ✅ v2.1 (ramp fix + tiers) |
 | **Team power rankings** | Rank every team by lineup (flex, K, DEF, IR aware) and depth | ✅ v2 |
-| **Trade calculator** | Value exchanged **and** the effect on both lineups, color-coded, with this season's context and a player stats card | ✅ v2.1 |
+| **Trade calculator** | Value exchanged **and** the effect on both lineups, color-coded, chained trade simulation, a player card with a weekly game log | ✅ v2.2 |
 | **Trade finder** | Trades that fix the weakest spots of your lineup without gutting the other team | ✅ New |
 | **Website** | Static site on GitHub Pages, refreshed weekly by GitHub Actions; reads your real Sleeper lineup | ✅ v2 |
 
@@ -172,15 +172,26 @@ Try it: `python -m ff.models.power rosters.json`.
   section per player (projection breakdown, matchup, touch share, teammate competition, rank/tier badges) with an
   adjustment box. Value says what a player is worth on any roster; the power delta says what *your* lineup gains
   or loses.
+- **Trade-chain simulation:** "Iniciar simulación" snapshots your league's rosters into a sandbox and locks your
+  "you" side to one team; each trade you apply (any partner, one after another) updates that sandbox and a running
+  log with the cumulative power change, so you can plan several trades across different teams and see where your
+  roster ends up before proposing anything for real. It never touches your actual Sleeper rosters — "Terminar
+  simulación" discards it. `FF.applyTrade()` in `core.js` is the pure function behind it (moves players between a
+  plain roster map, carries IR tags with the player, does not mutate its input), checked in `core.test.js`.
 - **Finder:** ranks your lineup groups (QB, RB, WR, TE, FLEX, K, DEF) against the league, then searches 1-for-1 and
   2-for-1 trades (you give two, get one) with every other team. A proposal must improve your lineup by >= 0.5 PPG,
   not hurt the partner's by more than 0.3 and keep values within about +/-12% for you; proposals that also improve
   the partner are marked win-win. Each card shows the same color-coded chips and opens straight into the trade
   calculator's full comparison ("Ver comparativo"). You can restrict it to positions. It runs in ~0.1 s in the
   browser for a 12-team league.
-- **Player card:** click any player's name anywhere on the site for a small card with his projection, rank/tier
-  badges, matchup and role — a lighter "stats card" than a full box score (a game-by-game log is not in the data
-  file; see Known limits below).
+- **Player card:** click any player's name anywhere on the site for a card with two tabs — **Resumen** (projection,
+  rank/tier badges, matchup, role) and **Semana a semana** (his game log for the current season: snaps, rushing,
+  receiving, fumbles, return stats, one row per week, future weeks show the opponent only). The weekly data is a
+  separate, lazily-fetched file (`site/data/player_weeks.json`, only loaded the first time you open that tab) so it
+  does not slow down the initial page load. The **PROJ** column there is your season-long projection repeated every
+  future week, not a week-specific number — see Known limits.
+- **Compare players:** tick up to 5 players in the Player values table (checkbox column) and click "Comparar →" for
+  a side-by-side table (rank, tier, proj PPG, value, matchup, role, status).
 
 ## Website
 
@@ -204,14 +215,16 @@ python -m http.server -d site 8000             # then open http://localhost:8000
 fresh data, rebuilds the values and publishes `site/` every day (or on demand from the Actions tab); your Sleeper roster, lineup and trades
 are always read live by the browser, so only the projections/matchups/injuries side needs this refresh.
 
-**Tests:** `pytest` (Python + JS parity) and `cd web_tests && npm install && npm test` (JS logic and a jsdom smoke test of the page with a
-mocked Sleeper API).
+**Tests:** `pytest` (Python + JS parity) and `cd web_tests && npm install && npm test` (JS logic, a static HTML-order check, and a jsdom
+smoke test of the page with a mocked Sleeper API).
 
 **Known limits:**
 - The league import was confirmed against the live Sleeper API by hand (username and league ID); the automated tests use mocks.
-- No game-by-game log is in the data file (only a recency-weighted season summary), to keep the JSON small — the player card shows season
-  context, not a box score, and there is no "value went up/down this week" indicator yet, since that needs a stored history of past values
-  the static site does not currently keep.
+- The weekly game log (`site/data/player_weeks.json`) only covers the current season, to keep the file a reasonable size (about 2 MB
+  uncompressed for the whole league) — no prior-season game-by-game history. Its **PROJ** column is your season-long projection repeated
+  every future week, not a week-specific, opponent-adjusted number; a real week-by-week projection model (home/away, Vegas lines, etc.) is
+  a separate, bigger model this project does not have. There is also no "value went up/down this week" indicator, since that needs a stored
+  history of past *values* (not just stats), which the static site does not currently keep.
 - No automated feed of outside "ball knowledge" (beat-writer or expert commentary, injury-report nuance not yet reflected in the stats):
   considered scraping specific X/Twitter accounts for this, but decided against building it — X's API for that kind of use is paid, scraping
   outside an API risks violating its terms, and a scraper needs somewhere to run on a schedule, which a static GitHub Pages site does not
@@ -222,7 +235,8 @@ mocked Sleeper API).
 
 **On the roadmap, not built yet:** a weekly scorecard (projected vs. actual, to keep the backtests honest going forward), a team
 stats/depth-chart tab (who is a team's WR1/WR2/etc., and which fantasy team owns each of a real team's players), a waiver-wire tab
-(add/drop recommendations ranked like the trade finder), multi-player comparisons, and chaining several trades together to plan a sequence.
+(add/drop recommendations ranked like the trade finder), rank/value trend arrows (needs a stored history of past values — see Known
+limits above), and prior-season weeks in the player card's game log.
 
 ## Quickstart
 
@@ -273,6 +287,7 @@ src/ff/
   features/special.py  # kicker and team-defense projections
   models/power.py      # lineup-aware team power rankings
   models/trade.py      # trade evaluation: value + power delta for both teams
+  models/weeklog.py    # per-player weekly game log for the player card's "Semana a semana" tab
 experiments/           # backtests behind the model defaults (projection variants, injury history)
 site/                  # the website (index.html, js/core.js, js/app.js, data/)
 web_tests/             # Node tests for the site (logic + jsdom smoke test)

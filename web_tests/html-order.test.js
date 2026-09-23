@@ -16,6 +16,10 @@ assert.ok(firstScript > 0, "expected at least one blocking <script src> tag");
 const app = fs.readFileSync(path.join(__dirname, "..", "site", "js", "app.js"), "utf8");
 const idsUsedAtInit = new Set();
 for (const m of app.matchAll(/\$\("#([\w-]+)"\)/g)) idsUsedAtInit.add(m[1]);
+// Ids app.js creates itself via el("...", { id: "..." }) (e.g. inside the player-card modal) are populated and
+// queried entirely in JS after the page has loaded, so the HTML-parse-order race this test checks for does not
+// apply to them — only ids that must already exist in the static markup when a blocking <script> runs.
+for (const m of app.matchAll(/id:\s*"([\w-]+)"/g)) idsUsedAtInit.delete(m[1]);
 
 const missing = [];
 for (const id of idsUsedAtInit) {

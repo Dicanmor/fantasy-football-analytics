@@ -377,9 +377,27 @@
     };
   }
 
+  // ---------------------------------------------------------------- trade-chain simulation
+  /* Applies one trade to a plain {rosterId: {players, reserve, taxi}} map and returns a NEW map (does not
+   * mutate the input), so a sequence of trades across different team pairs can be simulated by chaining calls.
+   * ctx.league.ir caps how many incoming IR players a team can keep tagged IR. */
+  function applyTrade(rosters, myId, theirId, give, get, ctx) {
+    const my = rosters[myId], their = rosters[theirId];
+    const moveOut = (r, out, incoming, incomingIr) => ({
+      players: r.players.filter((i) => !out.includes(i)).concat(incoming),
+      reserve: r.reserve.filter((i) => !out.includes(i)).concat(incoming.filter((i) => incomingIr.includes(i))).slice(0, ctx.league.ir),
+      taxi: r.taxi.filter((i) => !out.includes(i)),
+    });
+    return {
+      ...rosters,
+      [myId]: moveOut(my, give, get, their.reserve || []),
+      [theirId]: moveOut(their, get, give, my.reserve || []),
+    };
+  }
+
   return {
     replacementRank, replacementLevels, valuesForLeague, pAtLeast, teamPower, powerRankings, slotLabels,
     evaluateValue, evaluateTrade, verdictFor, teamNeeds, findTrades, matchupLabel, parseLeague, buildTeams,
-    searchPlayers, createSleeper, SleeperError, FAIR_TOLERANCE, computeRanks, computeTiers, posLabel,
+    searchPlayers, createSleeper, SleeperError, FAIR_TOLERANCE, computeRanks, computeTiers, posLabel, applyTrade,
   };
 });

@@ -103,6 +103,19 @@ const tm = FF.buildTeams([{ roster_id: 1, owner_id: "u1", players: [1, "2"], res
 assert.deepStrictEqual(tm.map((x) => [x.name, x.isMe, x.players, x.reserve, x.taxi]), [["Los Pollos", true, ["1", "2"], ["2"], []], ["Team 2", false, [], [], []]]);
 assert.deepStrictEqual(FF.searchPlayers({ a: p("RB", 10, 1, "Jahmyr Gibbs"), b: p("RB", 14, 1, "Gibbs Jr") }, "gibbs").map((x) => x.id), ["b", "a"]);
 
+// trade-chain simulation: applyTrade is pure (no mutation) and chains across a third team
+{
+  const ctx2 = { league: { ir: 1 } };
+  const rosters = { A: { players: ["a1", "a2"], reserve: [], taxi: [] }, B: { players: ["b1", "b2", "b3"], reserve: ["b3"], taxi: [] } };
+  const after1 = FF.applyTrade(rosters, "A", "B", ["a1"], ["b3"], ctx2);
+  assert.deepStrictEqual(after1.A, { players: ["a2", "b3"], reserve: ["b3"], taxi: [] }, "IR tag carries over with the traded player");
+  assert.deepStrictEqual(after1.B.players, ["b1", "b2", "a1"]);
+  assert.deepStrictEqual(rosters.A, { players: ["a1", "a2"], reserve: [], taxi: [] }, "original roster map is not mutated");
+  const rosters2 = { ...after1, C: { players: ["c1"], reserve: [], taxi: [] } };
+  const after2 = FF.applyTrade(rosters2, "A", "C", ["a2"], ["c1"], ctx2);
+  assert.deepStrictEqual(after2.A.players, ["b3", "c1"], "a second trade with a different team chains on top of the first");
+}
+
 // Sleeper client with a mocked fetch
 (async () => {
   const fake = (routes) => async (url) => {

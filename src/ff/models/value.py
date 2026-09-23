@@ -543,6 +543,9 @@ def evaluate_projection(league: League, seasons=(2022, 2023, 2024, 2025), weeks=
 def main(argv: list[str] | None = None) -> None:
     import nflreadpy as nfl
 
+    from ff.features.injuries import build_all
+    from ff.models.weeklog import export_weekly_log
+
     p = argparse.ArgumentParser(description="Build player values (rest-of-season points over replacement).")
     p.add_argument("--teams", type=int, default=12, help="teams in the default league (the site recomputes for yours)")
     p.add_argument("--season", type=int, default=None)
@@ -560,6 +563,14 @@ def main(argv: list[str] | None = None) -> None:
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     players.write_csv(PROCESSED_DIR / "player_values.csv")
     export_site_data(players, pools, league, as_of)
+
+    active = current_roster(load_raw("rosters_weekly"), as_of)
+    tables = build_all(as_of[0])
+    proj_by_sid = {
+        r["sleeper_id"]: r["final_ppg"] for r in players.iter_rows(named=True) if r["sleeper_id"]
+    }
+    export_weekly_log(active, tables["log"], as_of, proj_by_sid, SITE_JSON.parent)
+
     print(f"As of {as_of[0]} week {as_of[1]} | default league: {league.teams} teams, slots {list(league.slots)}")
     print("replacement PPG: " + ", ".join(f"{k} {v:.1f}" for k, v in replacement.items()))
     print(players.select("overall_rank", "full_name", "position", "team", "proj_ppg", "exp_games", "value", "opp", "mu").head(12))

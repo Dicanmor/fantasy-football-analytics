@@ -115,6 +115,33 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
   input.dispatchEvent(new w.Event("input", { bubbles: true }));
   assert.match(d.querySelector("#trade-result").textContent, /must be on your roster\. Showing player values only/);
 
+  // clean the invalid pick back up (remove every "give" chip) before the simulation test below
+  while (d.querySelector("#give-chips .chip button")) click(w, d.querySelector("#give-chips .chip button"));
+
+  // trade-chain simulation: apply two trades with two different partners and see the running total
+  click(w, d.querySelector("#give-roster button"));
+  assert.match(d.querySelector("#trade-result").textContent, /Iniciar simulación/);
+  click(w, [...d.querySelectorAll("#trade-result button")].find((b) => b.textContent === "Iniciar simulación"));
+  assert.ok(d.querySelector("#me-select").disabled, "the 'you' side locks while a simulation is running");
+  const applyBtn = () => [...d.querySelectorAll("#trade-result button")].find((b) => b.textContent === "Aplicar este trade a la simulación");
+  assert.ok(applyBtn(), "an apply button appears once give/get are picked");
+  click(w, applyBtn());
+  assert.match(d.querySelector("#trade-result").textContent, /1 trade\(s\) aplicado\(s\)/);
+  assert.strictEqual(d.querySelectorAll("#give-chips .chip").length, 0, "the trade slots clear after applying");
+  // switch to a THIRD team and apply a second trade, chained on top of the first
+  const partnerSel = d.querySelector("#partner-select");
+  const otherPartner = [...partnerSel.options].find((o) => o.value !== partnerSel.value);
+  change(w, partnerSel, otherPartner.value);
+  click(w, d.querySelector("#give-roster button"));
+  click(w, d.querySelector("#get-roster button"));
+  if (applyBtn()) {
+    click(w, applyBtn());
+    assert.match(d.querySelector("#trade-result").textContent, /2 trade\(s\) aplicado\(s\)/);
+  }
+  click(w, [...d.querySelectorAll("#trade-result button")].find((b) => b.textContent === "Terminar simulación"));
+  assert.ok(!d.querySelector("#me-select").disabled, "'you' unlocks once the simulation ends");
+  assert.deepStrictEqual(errors, [], "trade simulation did not throw: " + errors.join("; "));
+
   // trade finder
   click(w, d.querySelector('.tabs button[data-tab="finder"]'));
   assert.ok(d.querySelectorAll("#finder-needs .need").length >= 5, "needs by lineup group");
@@ -143,11 +170,11 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
   click(w, [...d.querySelectorAll("#pos-filter button")].find((b) => b.textContent === "DEF"));
   assert.strictEqual(d.querySelectorAll("#values-table tbody tr").length, 32);
   click(w, [...d.querySelectorAll("#pos-filter button")].find((b) => b.textContent === "TE"));
-  const tePos = [...d.querySelectorAll("#values-table tbody tr")].map((r) => r.children[2].textContent); // Pos column now shows a rank badge, e.g. "TE5"
+  const tePos = [...d.querySelectorAll("#values-table tbody tr")].map((r) => r.children[3].textContent); // checkbox, #, name, then Pos column (rank badge, e.g. "TE5")
   assert.ok(tePos.length > 10 && tePos.every((p) => p.startsWith("TE")));
 
   // rank/tier badges and the player-card modal
-  const posBadge = d.querySelector("#values-table tbody tr td:nth-child(3) .tag");
+  const posBadge = d.querySelector("#values-table tbody tr td:nth-child(4) .tag");
   assert.match(posBadge.textContent, /^TE\d+$/);
   const nameBtn = d.querySelector("#values-table tbody tr button.link");
   click(w, nameBtn);
@@ -155,8 +182,26 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
   assert.ok(!modal.classList.contains("hidden"), "player card opens");
   assert.match(modal.textContent, /Proj PPG/);
   assert.match(modal.textContent, /Tier/);
+
+  // player card "Semana a semana" tab: lazy-fetches player_weeks.json and renders a table (or the empty-state message)
+  const weekTabBtn = [...d.querySelectorAll("#player-modal .pc-tab")].find((b) => b.textContent === "Semana a semana");
+  click(w, weekTabBtn);
+  await tick(60);
+  const pcBody = d.querySelector("#pc-body");
+  assert.ok(pcBody.querySelector(".weekly-table") || /No hay historial semanal/.test(pcBody.textContent), "weekly tab renders a table or the empty-state message");
+  assert.deepStrictEqual(errors, [], "weekly tab did not throw: " + errors.join("; "));
   click(w, d.querySelector("#player-modal-close"));
   assert.ok(modal.classList.contains("hidden"), "player card closes");
+
+  // compare mode: pick two players, open the comparison view
+  click(w, d.querySelectorAll("#values-table tbody input.cmp-check")[0]); // renderValues() rebuilds the table on each toggle, so re-query below
+  click(w, d.querySelectorAll("#values-table tbody input.cmp-check")[1]);
+  assert.match(d.querySelector("#tab-values .card").textContent, /2 seleccionados/);
+  click(w, d.querySelector("#compare-bar button.primary"));
+  assert.ok(!modal.classList.contains("hidden"), "compare view opens in the player modal");
+  assert.match(modal.textContent, /Comparativo/);
+  assert.strictEqual(d.querySelectorAll("#player-modal .compare-table th").length, 3, "one header cell per player plus the blank label column");
+  click(w, d.querySelector("#player-modal-close"));
 
   assert.deepStrictEqual(errors, [], "no script errors: " + errors.join("; "));
 

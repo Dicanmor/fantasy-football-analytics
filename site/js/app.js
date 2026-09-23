@@ -40,10 +40,20 @@
     user: null, leagues: [], teams: [],
     adj: { players: {}, teams: {} },
     trade: { meId: null, partnerId: null, give: [], get: [] },
+    sim: null, // trade-chain simulation: { rosters, log, baseline } — see startSim()/applySimTrade()
     finder: { focus: [], results: null },
+    compare: new Set(), // sleeper ids picked in the Player values tab for side-by-side comparison
+    weeks: null, weeksPromise: null, // lazy-loaded site/data/player_weeks.json (see ensureWeeklyData)
     sort: { key: "value", dir: -1 }, pos: "ALL", q: "",
   };
   const teamById = (id) => state.teams.find((t) => String(t.rosterId) === String(id));
+  // team's roster during a trade simulation (see startSim); real Sleeper roster otherwise
+  function activeRoster(id) {
+    const t = teamById(id);
+    if (!t) return null;
+    const r = state.sim && state.sim.rosters[String(id)];
+    return r ? { ...t, players: r.players, reserve: r.reserve, taxi: r.taxi } : t;
+  }
 
   // ------------------------------------------------------------------ adjustments + recompute
   function loadAdj() {
@@ -95,13 +105,42 @@
   }
 
   // ------------------------------------------------------------------ player card modal
-  function openPlayerCard(id) {
-    const p = state.values[id];
-    if (!p) return;
-    const modal = $("#player-modal");
-    const body = clear($("#player-modal-body"));
-    body.append(
-      el("div", { class: "pc-head" }, el("h3", { text: p.name }), el("span", { class: "muted", text: `${p.pos}${p.team ? " · " + p.team : ""}` })),
+  async function ensureWeeklyData() {
+    if (state.weeks) return state.weeks;
+    if (!state.weeksPromise) {
+      state.weeksPromise = fetch("data/player_weeks.json")
+        .then((r) => (r.ok ? r.json() : {}))
+        .then((d) => { state.weeks = d; return d; })
+        .catch(() => { state.weeks = {}; return {}; });
+    }
+    return state.weeksPromise;
+  }
+  const per = (num, den) => (den ? (num / den).toFixed(1) : "–");
+  function weeklyTable(rows) {
+    const head = ["WK", "OPP", "PROJ", "FPTS", "SNP%", "ATT", "YD", "YPC", "TD", "TAR", "REC", "YD", "Y/T", "Y/R", "TD", "FUM", "LOST", "KR", "KYD", "PR", "SP TD"];
+    const groups = [["", 2], ["FANTASY", 2], ["", 1], ["RUSHING", 4], ["RECEIVING", 5], ["FUMBLE", 2], ["RETURNING", 5]];
+    const dash = (v) => (v === null || v === undefined ? "–" : v);
+    return el("div", { class: "table-wrap" }, el("table", { class: "weekly-table" },
+      el("thead", {},
+        el("tr", {}, groups.map(([g, span]) => el("th", { colspan: String(span), class: g ? "grp" : "" }, g || ""))),
+        el("tr", {}, head.map((h) => el("th", { text: h })))),
+      el("tbody", {}, rows.map((g) => {
+        const played = g.fpts !== null && g.fpts !== undefined;
+        return el("tr", { class: played ? "" : "future" },
+          el("td", { text: g.wk }), el("td", { text: g.opp || "BYE" }),
+          el("td", { class: "num", text: dash(g.proj) }), el("td", { class: "num strong", text: dash(g.fpts) }),
+          el("td", { class: "num", text: g.snap === null || g.snap === undefined ? "–" : g.snap + "%" }),
+          el("td", { class: "num", text: dash(g.ra) }), el("td", { class: "num", text: dash(g.ry) }),
+          el("td", { class: "num", text: played ? per(g.ry, g.ra) : "–" }), el("td", { class: "num", text: dash(g.rt) }),
+          el("td", { class: "num", text: dash(g.tg) }), el("td", { class: "num", text: dash(g.rc) }), el("td", { class: "num", text: dash(g.cy) }),
+          el("td", { class: "num", text: played ? per(g.cy, g.tg) : "–" }), el("td", { class: "num", text: played ? per(g.cy, g.rc) : "–" }),
+          el("td", { class: "num", text: dash(g.ct) }),
+          el("td", { class: "num", text: dash(g.fm) }), el("td", { class: "num", text: dash(g.fl) }),
+          el("td", { class: "num", text: dash(g.kr) }), el("td", { class: "num", text: dash(g.kyd) }), el("td", { class: "num", text: dash(g.pr) }), el("td", { class: "num", text: dash(g.spt) }));
+      }))));
+  }
+  function summaryTab(id, p) {
+    return el("div", {},
       el("div", { class: "pc-badges" }, rankBadges(id), statusTag(p), matchupBadge(p)),
       el("div", { class: "stats" },
         el("div", { class: "stat" }, el("span", { class: "muted small", text: "Proj PPG" }), el("b", { text: fmt(p.ppg) })),
@@ -110,7 +149,32 @@
       roleText(p) ? el("p", { class: "ctx", text: roleText(p) }) : null,
       p.opp ? el("p", { class: "ctx", text: `This week: vs ${p.opp}, matchup score ${p.mu}/100 for ${p.pos}s (100 = easiest defense)` }) : null,
       el("p", { class: "muted small", text: "PPG is a recency-weighted average of his own games (current season weighted heaviest); it is not a week-by-week box score." }));
+  }
+  async function openPlayerCard(id, tab = "summary") {
+    const p = state.values[id];
+    if (!p) return;
+    const modal = $("#player-modal");
+    const body = clear($("#player-modal-body"));
+    const tabs = el("div", { class: "pc-tabs" },
+      el("button", { class: "pc-tab" + (tab === "summary" ? " active" : ""), onclick: () => openPlayerCard(id, "summary"), text: "Resumen" }),
+      el("button", { class: "pc-tab" + (tab === "weeks" ? " active" : ""), onclick: () => openPlayerCard(id, "weeks"), text: "Semana a semana" }));
+    body.append(
+      el("div", { class: "pc-head" }, el("h3", { text: p.name }), el("span", { class: "muted", text: `${p.pos}${p.team ? " · " + p.team : ""}` })),
+      tabs, el("div", { id: "pc-body" }));
     modal.classList.remove("hidden");
+    const slot = $("#pc-body");
+    if (tab === "summary") {
+      clear(slot).append(summaryTab(id, p));
+      return;
+    }
+    clear(slot).append(el("p", { class: "muted small", text: "Cargando…" }));
+    const weeks = await ensureWeeklyData();
+    const rows = weeks[id];
+    clear(slot).append(
+      rows
+        ? weeklyTable(rows)
+        : el("p", { class: "muted small", text: "No hay historial semanal para este jugador todavía." }),
+      el("p", { class: "muted small", text: "PROJ es tu proyección de temporada (la misma cada semana), no una proyección específica del rival de esa semana." }));
   }
   function wirePlayerCard() {
     $("#player-modal").addEventListener("click", (e) => { if (e.target.id === "player-modal") $("#player-modal").classList.add("hidden"); });
@@ -182,6 +246,7 @@
       state.finder = { focus: [], results: null };
       recompute();
       renderWarnings(parsed.warnings);
+      state.sim = null;
       resetTrade();
       renderAll();
       setStatus(`Loaded "${league.name}" (${state.teams.length} teams).`, "ok");
@@ -243,6 +308,44 @@
     card.append(el("div", { class: "table-wrap" }, table));
   }
 
+  // ------------------------------------------------------------------ trade-chain simulation
+  function startSim() {
+    state.sim = {
+      rosters: Object.fromEntries(state.teams.map((t) => [String(t.rosterId), { players: t.players.slice(), reserve: t.reserve.slice(), taxi: t.taxi.slice() }])),
+      log: [], meId: state.trade.meId,
+    };
+    state.sim.baseline = FF.teamPower(activeRoster(state.sim.meId).players, state.values, state.ctx, activeRoster(state.sim.meId).reserve, activeRoster(state.sim.meId).taxi).power;
+    renderTradeTeams(); renderTradeSides(); renderTradeResult();
+  }
+  function endSim() {
+    state.sim = null;
+    renderTradeTeams(); renderTradeSides(); renderTradeResult();
+  }
+  function applySimTrade(full) {
+    const { meId, partnerId, give, get } = state.trade;
+    state.sim.rosters = FF.applyTrade(state.sim.rosters, meId, partnerId, give, get, state.ctx);
+    state.sim.log.push({ partner: teamById(partnerId).name, give: give.slice(), get: get.slice(), delta: full.you.deltaPower });
+    state.trade.give = []; state.trade.get = [];
+    renderTradeSides(); renderTradeResult();
+  }
+  function simPanel() {
+    if (!state.sim) {
+      return el("div", { class: "sim-banner" },
+        "Simula varias trades seguidas: cada una que apliques se guarda y la siguiente parte de ahí, con cualquier equipo. ",
+        el("button", { class: "primary", text: "Iniciar simulación", onclick: startSim }));
+    }
+    const me = activeRoster(state.sim.meId);
+    const now = FF.teamPower(me.players, state.values, state.ctx, me.reserve, me.taxi).power;
+    const cum = now - state.sim.baseline;
+    return el("div", { class: "sim-banner" },
+      el("div", {}, el("b", { text: "Simulación activa" }), ` para ${teamById(state.sim.meId).name} — `,
+        deltaChip(cum, "Acumulado"), ` (${state.sim.log.length} trade(s) aplicado(s))`,
+        el("button", { text: "Terminar simulación", onclick: endSim })),
+      state.sim.log.length ? el("div", { class: "sim-log" }, state.sim.log.map((l, i) => el("div", { class: "row" },
+        el("span", {}, `${i + 1}. con ${l.partner}: das ${l.give.map((id) => state.values[id] ? state.values[id].name : id).join("+")}, recibes ${l.get.map((id) => state.values[id] ? state.values[id].name : id).join("+")}`),
+        deltaChip(l.delta, "")))) : null);
+  }
+
   // ------------------------------------------------------------------ trade calculator
   function resetTrade() {
     const me = state.teams.find((t) => t.isMe) || state.teams[0];
@@ -257,6 +360,7 @@
     const me = clear($("#me-select"));
     state.teams.forEach((t) => me.append(el("option", { value: String(t.rosterId), text: t.name })));
     me.value = state.trade.meId;
+    me.disabled = !!state.sim; // locked mid-simulation so the running total stays about one team
     fillPartners();
   }
   function fillPartners() {
@@ -294,7 +398,7 @@
       chips.append(el("span", { class: "chip" }, p ? `${p.name} (${p.pos}) ${fmt(p.ppg)} ppg` : id, el("button", { title: "Remove", onclick: () => toggle(side, id), text: "×" })));
     });
     const list = clear($(`#${side}-roster`));
-    const team = teamId ? teamById(teamId) : null;
+    const team = teamId ? activeRoster(teamId) : null;
     if (!team) return;
     const inSlot = (id) => (team.reserve.includes(id) ? " (IR)" : team.taxi.includes(id) ? " (taxi)" : "");
     team.players.filter((id) => state.values[id])
@@ -329,11 +433,12 @@
 
   function renderTradeResult() {
     const root = clear($("#trade-result"));
+    root.append(simPanel());
     const { give, get } = state.trade;
     if (!give.length && !get.length) return;
     const ctx = state.ctx;
     let full = null, note = null;
-    const me = teamById(state.trade.meId), them = teamById(state.trade.partnerId);
+    const me = activeRoster(state.trade.meId), them = activeRoster(state.trade.partnerId);
     if (me && them) {
       try { full = FF.evaluateTrade(me, them, give, get, state.values, ctx); }
       catch (e) { note = `${e.message}. Showing player values only.`; }
@@ -359,6 +464,7 @@
           el("tbody", {}, row(me.name + " (you)", full.you), row(them.name, full.them)))));
       card.append(el("p", { class: "muted small", text: "Value counts what each player is worth on any roster; the power delta counts what your lineup actually gains or loses (flex included). A third RB is worth little to a team that already starts two good ones." }));
       if (get.length > give.length) card.append(el("p", { class: "muted small", text: `You receive ${get.length - give.length} more player(s) than you send; you would need to drop that many. Only your best ${state.league.bench} bench players count for depth.` }));
+      if (state.sim) card.append(el("button", { class: "primary", text: "Aplicar este trade a la simulación", onclick: () => applySimTrade(full) }));
     } else if (!note) {
       card.append(el("p", { class: "muted small", text: "Connect a league and pick both teams to see how each lineup changes, not just the raw value." }));
     }
@@ -434,9 +540,48 @@
     showTab("trade");
   }
 
+  function toggleCompare(id) {
+    if (state.compare.has(id)) state.compare.delete(id);
+    else if (state.compare.size < 5) state.compare.add(id);
+    renderValues();
+  }
+  function renderCompareBar() {
+    const old = $("#compare-bar");
+    if (old) old.remove();
+    if (state.compare.size < 2) return;
+    const bar = el("div", { id: "compare-bar", class: "compare-bar" },
+      el("span", { class: "muted small", text: `${state.compare.size} seleccionados` }),
+      el("button", { class: "primary", text: "Comparar →", onclick: openCompareView }),
+      el("button", { text: "Limpiar", onclick: () => { state.compare.clear(); renderValues(); } }));
+    $("#tab-values .card").appendChild(bar);
+  }
+  function openCompareView() {
+    const ids = [...state.compare];
+    const players = ids.map((id) => ({ id, ...state.values[id] }));
+    const modal = $("#player-modal"), body = clear($("#player-modal-body"));
+    const rowDef = [
+      ["Equipo", (p) => p.team || ""],
+      ["Rank", (p) => `#${state.ranks[p.id].overall} ovr / ${FF.posLabel(p.pos, state.ranks[p.id].pos)}`],
+      ["Tier", (p) => state.tiers[p.id] || "–"],
+      ["Proj PPG", (p) => fmt(p.ppg)],
+      ["Exp. games", (p) => fmt(p.exp_games)],
+      ["Value", (p) => fmt(p.value, 0)],
+      ["Matchup", (p) => (p.opp ? `vs ${p.opp} (${p.mu})` : "–")],
+      ["Role", (p) => (p.share === null || p.share === undefined ? "–" : pct(p.share))],
+      ["Status", (p) => p.status || "–"],
+    ];
+    body.append(
+      el("div", { class: "pc-head" }, el("h3", { text: "Comparativo" })),
+      el("div", { class: "table-wrap" }, el("table", { class: "compare-table" },
+        el("thead", {}, el("tr", {}, el("th", {}), ...players.map((p) => el("th", {}, nameLink(p.id))))),
+        el("tbody", {}, rowDef.map(([label, fn]) => el("tr", {},
+          el("td", { text: label }), ...players.map((p) => el("td", { text: fn(p) }))))))));
+    modal.classList.remove("hidden");
+  }
+
   // ------------------------------------------------------------------ player values table
   const COLUMNS = [
-    ["rank", "#", true], ["name", "Player", false], ["pos_rank", "Pos", true], ["tier", "Tier", false], ["team", "Team", false], ["age", "Age", true],
+    ["cmp", "", false], ["rank", "#", true], ["name", "Player", false], ["pos_rank", "Pos", true], ["tier", "Tier", false], ["team", "Team", false], ["age", "Age", true],
     ["ppg", "Proj PPG", true], ["exp_games", "Exp games", true], ["value", "Value", true],
     ["mu", "Matchup", true], ["share", "Role", true], ["adj", "Adj", true], ["status", "Status", false],
   ];
@@ -463,9 +608,11 @@
     });
     const table = clear($("#values-table"));
     table.append(el("thead", {}, el("tr", {}, ...COLUMNS.map(([k, lab, num]) =>
-      el("th", { class: "sortable" + (num ? " num" : ""), onclick: () => { state.sort = { key: k, dir: state.sort.key === k ? -state.sort.dir : (num ? -1 : 1) }; renderValues(); },
+      el("th", { class: "sortable" + (num ? " num" : ""), onclick: () => { if (!k || k === "cmp") return; state.sort = { key: k, dir: state.sort.key === k ? -state.sort.dir : (num ? -1 : 1) }; renderValues(); },
         text: lab + (state.sort.key === k ? (state.sort.dir > 0 ? " ▲" : " ▼") : "") })))));
     table.append(el("tbody", {}, rows.slice(0, 300).map((r) => el("tr", {},
+      el("td", {}, el("input", { class: "cmp-check", type: "checkbox", checked: state.compare.has(r.id) || null,
+        disabled: !state.compare.has(r.id) && state.compare.size >= 5 || null, onchange: () => toggleCompare(r.id) })),
       el("td", { class: "num", text: r.rank }), el("td", {}, nameLink(r.id)),
       el("td", { class: "num" }, el("span", { class: "tag rk", text: FF.posLabel(r.pos, r.pos_rank) })),
       el("td", {}, r.tier ? el("span", { class: "tag tier tier-" + r.tier, title: TIER_TITLE, text: r.tier }) : null),
@@ -477,10 +624,11 @@
       el("td", { class: "num" }, el("input", { class: "adj", type: "number", step: "0.5", value: r.adj === undefined ? "" : String(r.adj), placeholder: "0",
         onchange: (e) => setAdj(r.id, parseFloat(e.target.value)) })),
       el("td", {}, statusTag(r))))));
+    renderCompareBar();
     $("#matchup-note").textContent =
       `Matchup: how many fantasy points the ${DATA.as_of.season} week ${DATA.as_of.week} opponent allows to that position vs. the other defenses (100 = easiest, ` +
       `Favorable ≥ ${MODEL.matchup.favorable}, Tough ≤ ${MODEL.matchup.tough}). In backtests this was a weak predictor: use it as context. ` +
-      `Role: share of team rushes + targets over the last 4 games (↔ = shares touches with a teammate; hover for detail).`;
+      `Role: share of team rushes + targets over the last 4 games (↔ = shares touches with a teammate; hover for detail). Marca hasta 5 jugadores para comparar.`;
   }
 
   // ------------------------------------------------------------------ team adjustments

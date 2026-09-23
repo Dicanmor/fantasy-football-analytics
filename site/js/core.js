@@ -241,6 +241,21 @@
     }).sort((a, b) => b.rank / b.of - a.rank / a.of || a.gap - b.gap);
   }
 
+  /* League Rank and per-group ranks (QB/RB/WR/TE/...) for one team: where it stands against every other team in
+   * ``teams``. Used to show "current vs. after this trade" — pass the same ``teams`` array with just meId's roster
+   * swapped for the "after" call. Rank 1 = best in the league. */
+  function leagueRanks(teams, values, ctx, meId) {
+    const rows = teams.map((t) => ({ t, power: teamPower(t.players, values, ctx, t.reserve, t.taxi) }));
+    const meRow = rows.find((r) => String(r.t.rosterId) === String(meId));
+    if (!meRow) return null;
+    const rankOf = (mine, all) => all.filter((x) => x > mine + 1e-9).length + 1;
+    const out = { League: rankOf(meRow.power.power, rows.map((r) => r.power.power)) };
+    const groups = [...new Set(ctx.league.slots.map(groupOf).filter((g) => g !== "FLEX"))];
+    const score = (r, g) => r.power.lineup.reduce((s, x, i) => s + (groupOf(ctx.league.slots[i]) === g ? (x.ev !== null ? x.ev : 0) : 0), 0);
+    groups.forEach((g) => { out[g] = rankOf(score(meRow, g), rows.map((r) => score(r, g))); });
+    return out;
+  }
+
   function combos(arr, k) {
     if (k === 1) return arr.map((x) => [x]);
     const out = [];
@@ -398,6 +413,6 @@
   return {
     replacementRank, replacementLevels, valuesForLeague, pAtLeast, teamPower, powerRankings, slotLabels,
     evaluateValue, evaluateTrade, verdictFor, teamNeeds, findTrades, matchupLabel, parseLeague, buildTeams,
-    searchPlayers, createSleeper, SleeperError, FAIR_TOLERANCE, computeRanks, computeTiers, posLabel, applyTrade,
+    searchPlayers, createSleeper, SleeperError, FAIR_TOLERANCE, computeRanks, computeTiers, posLabel, applyTrade, leagueRanks,
   };
 });

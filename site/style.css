@@ -136,3 +136,9 @@ input.cmp-check { width: 16px; height: 16px; }
 .sim-log .row { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
 .sim-log .row:last-child { border-bottom: none; }
 .sim-banner { background: rgba(31,111,235,.08); border: 1px solid var(--accent); border-radius: 10px; padding: 8px 12px; margin: 8px 0; font-size: 13px; }
+
+/* trade calculator: League/position rank before vs after (like the reference screenshot) */
+.rank-table th, .rank-table td { padding: 6px 12px; }
+.rank-table .rt-arrow { color: var(--muted); width: 20px; }
+.rank-table td.rt-cell.better { background: rgba(46, 204, 113, .18); color: #2ecc71; font-weight: 700; border-radius: 6px; }
+.rank-table td.rt-cell.worse { background: rgba(231, 76, 60, .18); color: #e74c3c; font-weight: 700; border-radius: 6px; }

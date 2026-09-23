@@ -116,28 +116,46 @@
     return state.weeksPromise;
   }
   const per = (num, den) => (den ? (num / den).toFixed(1) : "–");
-  function weeklyTable(rows) {
-    const head = ["WK", "OPP", "PROJ", "FPTS", "SNP%", "ATT", "YD", "YPC", "TD", "TAR", "REC", "YD", "Y/T", "Y/R", "TD", "FUM", "LOST", "KR", "KYD", "PR", "SP TD"];
-    const groups = [["", 2], ["FANTASY", 2], ["", 1], ["RUSHING", 4], ["RECEIVING", 5], ["FUMBLE", 2], ["RETURNING", 5]];
+  function weeklyTable(rows, pos) {
     const dash = (v) => (v === null || v === undefined ? "–" : v);
+    const played = (g) => g.fpts !== null && g.fpts !== undefined;
+    const isQb = pos === "QB";
+    const head = isQb
+      ? ["WK", "OPP", "PROJ", "FPTS", "SNP%", "ATT", "CMP", "YD", "TD", "INT", "ATT", "YD", "YPC", "TD", "SK", "YDS", "FUM", "LOST"]
+      : ["WK", "OPP", "PROJ", "FPTS", "SNP%", "ATT", "YD", "YPC", "TD", "TAR", "REC", "YD", "Y/T", "Y/R", "TD", "FUM", "LOST", "KR", "KYD", "PR", "SP TD"];
+    const groups = isQb
+      ? [["", 2], ["FANTASY", 2], ["", 1], ["PASS", 5], ["RUSHING", 4], ["SACKED", 2], ["FUMBLE", 2]]
+      : [["", 2], ["FANTASY", 2], ["", 1], ["RUSHING", 4], ["RECEIVING", 5], ["FUMBLE", 2], ["RETURNING", 5]];
+    const cells = (g) => {
+      const p = played(g);
+      const common = [
+        el("td", { text: g.wk }), el("td", { text: g.opp || "BYE" }),
+        el("td", { class: "num", text: dash(g.proj) }), el("td", { class: "num strong", text: dash(g.fpts) }),
+        el("td", { class: "num", text: g.snap === null || g.snap === undefined ? "–" : g.snap + "%" }),
+      ];
+      if (isQb) {
+        return [...common,
+          el("td", { class: "num", text: dash(g.pa) }), el("td", { class: "num", text: dash(g.pc) }), el("td", { class: "num", text: dash(g.py) }),
+          el("td", { class: "num", text: dash(g.pt) }), el("td", { class: "num", text: dash(g.pi) }),
+          el("td", { class: "num", text: dash(g.ra) }), el("td", { class: "num", text: dash(g.ry) }),
+          el("td", { class: "num", text: p ? per(g.ry, g.ra) : "–" }), el("td", { class: "num", text: dash(g.rt) }),
+          el("td", { class: "num", text: dash(g.sk) }), el("td", { class: "num", text: dash(g.sky) }),
+          el("td", { class: "num", text: dash(g.fm) }), el("td", { class: "num", text: dash(g.fl) })];
+      }
+      return [...common,
+        el("td", { class: "num", text: dash(g.ra) }), el("td", { class: "num", text: dash(g.ry) }),
+        el("td", { class: "num", text: p ? per(g.ry, g.ra) : "–" }), el("td", { class: "num", text: dash(g.rt) }),
+        el("td", { class: "num", text: dash(g.tg) }), el("td", { class: "num", text: dash(g.rc) }), el("td", { class: "num", text: dash(g.cy) }),
+        el("td", { class: "num", text: p ? per(g.cy, g.tg) : "–" }), el("td", { class: "num", text: p ? per(g.cy, g.rc) : "–" }),
+        el("td", { class: "num", text: dash(g.ct) }),
+        el("td", { class: "num", text: dash(g.fm) }), el("td", { class: "num", text: dash(g.fl) }),
+        el("td", { class: "num", text: dash(g.kr) }), el("td", { class: "num", text: dash(g.kyd) }), el("td", { class: "num", text: dash(g.pr) }), el("td", { class: "num", text: dash(g.spt) })];
+    };
     return el("div", { class: "table-wrap" }, el("table", { class: "weekly-table" },
       el("thead", {},
         el("tr", {}, groups.map(([g, span]) => el("th", { colspan: String(span), class: g ? "grp" : "" }, g || ""))),
         el("tr", {}, head.map((h) => el("th", { text: h })))),
-      el("tbody", {}, rows.map((g) => {
-        const played = g.fpts !== null && g.fpts !== undefined;
-        return el("tr", { class: played ? "" : "future" },
-          el("td", { text: g.wk }), el("td", { text: g.opp || "BYE" }),
-          el("td", { class: "num", text: dash(g.proj) }), el("td", { class: "num strong", text: dash(g.fpts) }),
-          el("td", { class: "num", text: g.snap === null || g.snap === undefined ? "–" : g.snap + "%" }),
-          el("td", { class: "num", text: dash(g.ra) }), el("td", { class: "num", text: dash(g.ry) }),
-          el("td", { class: "num", text: played ? per(g.ry, g.ra) : "–" }), el("td", { class: "num", text: dash(g.rt) }),
-          el("td", { class: "num", text: dash(g.tg) }), el("td", { class: "num", text: dash(g.rc) }), el("td", { class: "num", text: dash(g.cy) }),
-          el("td", { class: "num", text: played ? per(g.cy, g.tg) : "–" }), el("td", { class: "num", text: played ? per(g.cy, g.rc) : "–" }),
-          el("td", { class: "num", text: dash(g.ct) }),
-          el("td", { class: "num", text: dash(g.fm) }), el("td", { class: "num", text: dash(g.fl) }),
-          el("td", { class: "num", text: dash(g.kr) }), el("td", { class: "num", text: dash(g.kyd) }), el("td", { class: "num", text: dash(g.pr) }), el("td", { class: "num", text: dash(g.spt) }));
-      }))));
+      el("tbody", {}, rows.map((g) => el("tr", { class: played(g) ? "" : "future" }, cells(g))))));
   }
   function summaryTab(id, p) {
     return el("div", {},
@@ -172,7 +190,7 @@
     const rows = weeks[id];
     clear(slot).append(
       rows
-        ? weeklyTable(rows)
+        ? weeklyTable(rows, p.pos)
         : el("p", { class: "muted small", text: "No hay historial semanal para este jugador todavía." }),
       el("p", { class: "muted small", text: "PROJ es tu proyección de temporada (la misma cada semana), no una proyección específica del rival de esa semana." }));
   }
@@ -431,6 +449,29 @@
     }));
   }
 
+  const GROUP_LABEL = { League: "League Rank", QB: "QB Rank", RB: "RB Rank", WR: "WR Rank", TE: "TE Rank", K: "K Rank", DEF: "DEF Rank" };
+  function rankTable(give, get) {
+    const teamsForRanks = state.teams.map((t) => { const r = activeRoster(t.rosterId); return { rosterId: t.rosterId, players: r.players, reserve: r.reserve, taxi: r.taxi }; });
+    const afterTeams = teamsForRanks.map((t) => {
+      if (String(t.rosterId) === String(state.trade.meId)) return { ...t, players: t.players.filter((id) => !give.includes(id)).concat(get) };
+      if (String(t.rosterId) === String(state.trade.partnerId)) return { ...t, players: t.players.filter((id) => !get.includes(id)).concat(give) };
+      return t;
+    });
+    const before = FF.leagueRanks(teamsForRanks, state.values, state.ctx, state.trade.meId);
+    const after = FF.leagueRanks(afterTeams, state.values, state.ctx, state.trade.meId);
+    if (!before || !after) return null;
+    const rows = Object.keys(before).map((k) => {
+      const cls = after[k] < before[k] ? "better" : after[k] > before[k] ? "worse" : "";
+      return el("tr", {}, el("td", { text: GROUP_LABEL[k] || k }), el("td", { class: "num", text: before[k] }),
+        el("td", { class: "num rt-arrow" }, "→"), el("td", { class: "num rt-cell " + cls, text: after[k] }));
+    });
+    return el("div", {}, el("h3", { text: "Ranking de tu equipo en la liga" }),
+      el("div", { class: "table-wrap" }, el("table", { class: "rank-table" },
+        el("thead", {}, el("tr", {}, el("th", { text: "" }), el("th", { class: "num", text: "Current" }), el("th", {}), el("th", { class: "num", text: "After Trade" }))),
+        el("tbody", {}, rows))),
+      el("p", { class: "muted small", text: "1 = el mejor de la liga en ese grupo. Verde = mejora, rojo = empeora." }));
+  }
+
   function renderTradeResult() {
     const root = clear($("#trade-result"));
     root.append(simPanel());
@@ -462,6 +503,7 @@
         el("div", { class: "table-wrap" }, el("table", {},
           el("thead", {}, el("tr", {}, ...["Team", "Power", "Δ Power", "Δ Lineup", "Δ Depth"].map((h, i) => el("th", { class: i ? "num" : "", text: h })))),
           el("tbody", {}, row(me.name + " (you)", full.you), row(them.name, full.them)))));
+      card.append(rankTable(give, get));
       card.append(el("p", { class: "muted small", text: "Value counts what each player is worth on any roster; the power delta counts what your lineup actually gains or loses (flex included). A third RB is worth little to a team that already starts two good ones." }));
       if (get.length > give.length) card.append(el("p", { class: "muted small", text: `You receive ${get.length - give.length} more player(s) than you send; you would need to drop that many. Only your best ${state.league.bench} bench players count for depth.` }));
       if (state.sim) card.append(el("button", { class: "primary", text: "Aplicar este trade a la simulación", onclick: () => applySimTrade(full) }));
@@ -555,7 +597,7 @@
       el("button", { text: "Limpiar", onclick: () => { state.compare.clear(); renderValues(); } }));
     $("#tab-values .card").appendChild(bar);
   }
-  function openCompareView() {
+  async function openCompareView() {
     const ids = [...state.compare];
     const players = ids.map((id) => ({ id, ...state.values[id] }));
     const modal = $("#player-modal"), body = clear($("#player-modal-body"));
@@ -575,8 +617,27 @@
       el("div", { class: "table-wrap" }, el("table", { class: "compare-table" },
         el("thead", {}, el("tr", {}, el("th", {}), ...players.map((p) => el("th", {}, nameLink(p.id))))),
         el("tbody", {}, rowDef.map(([label, fn]) => el("tr", {},
-          el("td", { text: label }), ...players.map((p) => el("td", { text: fn(p) }))))))));
+          el("td", { text: label }), ...players.map((p) => el("td", { text: fn(p) }))))))),
+      el("div", { class: "section-label", text: "Semana a semana (temporada actual)" }),
+      el("div", { id: "compare-weeks" }, el("p", { class: "muted small", text: "Cargando…" })));
     modal.classList.remove("hidden");
+    const weeks = await ensureWeeklyData();
+    const byPlayer = players.map((p) => ({ p, rows: weeks[p.id] || [] }));
+    const allWeeks = [...new Set(byPlayer.flatMap((x) => x.rows.map((g) => g.wk)))].sort((a, b) => a - b);
+    const slot = $("#compare-weeks");
+    if (!allWeeks.length) { clear(slot).append(el("p", { class: "muted small", text: "No hay historial semanal para estos jugadores todavía." })); return; }
+    const cellFor = (x, wk) => {
+      const g = x.rows.find((r) => r.wk === wk);
+      if (!g) return "–";
+      if (g.fpts !== null && g.fpts !== undefined) return g.fpts.toFixed(1);
+      return g.proj !== null && g.proj !== undefined ? `(${g.proj.toFixed(1)})` : "–";
+    };
+    clear(slot).append(
+      el("div", { class: "table-wrap" }, el("table", { class: "compare-table" },
+        el("thead", {}, el("tr", {}, el("th", { text: "WK" }), ...byPlayer.map((x) => el("th", {}, nameLink(x.p.id))))),
+        el("tbody", {}, allWeeks.map((wk) => el("tr", {},
+          el("td", { text: wk }), ...byPlayer.map((x) => el("td", { class: "num", text: cellFor(x, wk) }))))))),
+      el("p", { class: "muted small", text: "Números entre paréntesis son proyección de temporada (semana todavía no jugada), no un resultado real." }));
   }
 
   // ------------------------------------------------------------------ player values table

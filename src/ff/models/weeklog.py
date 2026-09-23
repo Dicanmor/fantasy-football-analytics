@@ -33,6 +33,8 @@ def _box_score(player_stats: pl.DataFrame, season: int) -> pl.DataFrame:
         player_stats.filter((pl.col("season") == season) & (pl.col("season_type") == "REG"))
         .select(
             gsis_id="player_id", week="week",
+            pass_att="attempts", pass_cmp="completions", pass_yd="passing_yards", pass_td="passing_tds",
+            pass_int="passing_interceptions", sk="sacks_suffered", sk_yd="sack_yards_lost",
             rush_att="carries", rush_yd="rushing_yards", rush_td="rushing_tds",
             tar="targets", rec="receptions", rec_yd="receiving_yards", rec_td="receiving_tds",
             fum=f("rushing_fumbles") + f("receiving_fumbles") + f("sack_fumbles"),
@@ -72,6 +74,9 @@ def build_weekly_log(
                     "wk": r["week"], "opp": r["opp"],
                     "fpts": round(r["ppr"], 2) if played else None,
                     "snap": round(r["offense_pct"] * 100) if played and r["offense_pct"] is not None else None,
+                    "pa": r["pass_att"] if played else None, "pc": r["pass_cmp"] if played else None,
+                    "py": r["pass_yd"] if played else None, "pt": r["pass_td"] if played else None,
+                    "pi": r["pass_int"] if played else None, "sk": r["sk"] if played else None, "sky": r["sk_yd"] if played else None,
                     "ra": r["rush_att"] if played else None, "ry": r["rush_yd"] if played else None,
                     "rt": r["rush_td"] if played else None,
                     "tg": r["tar"] if played else None, "rc": r["rec"] if played else None,

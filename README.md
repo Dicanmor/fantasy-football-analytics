@@ -178,6 +178,10 @@ Try it: `python -m ff.models.power rosters.json`.
   roster ends up before proposing anything for real. It never touches your actual Sleeper rosters — "Terminar
   simulación" discards it. `FF.applyTrade()` in `core.js` is the pure function behind it (moves players between a
   plain roster map, carries IR tags with the player, does not mutate its input), checked in `core.test.js`.
+- **League/position rank, before vs. after:** every trade preview shows a small table (League Rank, QB/RB/WR/TE/K/DEF
+  Rank) comparing where your team stands in the whole league now vs. after the trade, green when a group improves
+  and red when it drops — `FF.leagueRanks()` in `core.js`, reusing the same per-group scoring as the trade finder's
+  "needs" ranking, checked in `core.test.js`.
 - **Finder:** ranks your lineup groups (QB, RB, WR, TE, FLEX, K, DEF) against the league, then searches 1-for-1 and
   2-for-1 trades (you give two, get one) with every other team. A proposal must improve your lineup by >= 0.5 PPG,
   not hurt the partner's by more than 0.3 and keep values within about +/-12% for you; proposals that also improve
@@ -185,13 +189,17 @@ Try it: `python -m ff.models.power rosters.json`.
   calculator's full comparison ("Ver comparativo"). You can restrict it to positions. It runs in ~0.1 s in the
   browser for a 12-team league.
 - **Player card:** click any player's name anywhere on the site for a card with two tabs — **Resumen** (projection,
-  rank/tier badges, matchup, role) and **Semana a semana** (his game log for the current season: snaps, rushing,
-  receiving, fumbles, return stats, one row per week, future weeks show the opponent only). The weekly data is a
-  separate, lazily-fetched file (`site/data/player_weeks.json`, only loaded the first time you open that tab) so it
-  does not slow down the initial page load. The **PROJ** column there is your season-long projection repeated every
-  future week, not a week-specific number — see Known limits.
+  rank/tier badges, matchup, role) and **Semana a semana** (his game log for the current season, one row per week,
+  future weeks show the opponent only). QBs get passing-shaped columns (FANTASY / PASS: att, cmp, yd, td, int /
+  RUSHING / SACKED / FUMBLE); everyone else gets rushing/receiving/fumble/return columns — a QB's box score is not
+  the same stat line as a WR's, so the table changes shape by position rather than forcing every player through the
+  same columns. The weekly data is a separate, lazily-fetched file (`site/data/player_weeks.json`, only loaded the
+  first time you open that tab) so it does not slow down the initial page load. The **PROJ** column there is your
+  season-long projection repeated every future week, not a week-specific number — see Known limits.
 - **Compare players:** tick up to 5 players in the Player values table (checkbox column) and click "Comparar →" for
-  a side-by-side table (rank, tier, proj PPG, value, matchup, role, status).
+  a side-by-side table (rank, tier, proj PPG, value, matchup, role, status) plus a **week-to-week** table below it
+  (actual FPTS per week for each selected player, future weeks in parentheses as their season projection) so you can
+  see who has actually been hotter lately, not just the season average.
 
 ## Website
 

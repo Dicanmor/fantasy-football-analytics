@@ -16,7 +16,10 @@ def test_past_weeks_get_actuals_future_weeks_get_none_and_bye_has_no_opponent():
     )
     player_stats = pl.DataFrame(
         {"player_id": pl.Series([], dtype=pl.String), "season": pl.Series([], dtype=pl.Int64), "week": pl.Series([], dtype=pl.Int64),
-         "season_type": pl.Series([], dtype=pl.String), "carries": pl.Series([], dtype=pl.Int64), "rushing_yards": pl.Series([], dtype=pl.Int64),
+         "season_type": pl.Series([], dtype=pl.String), "attempts": pl.Series([], dtype=pl.Int64), "completions": pl.Series([], dtype=pl.Int64),
+         "passing_yards": pl.Series([], dtype=pl.Int64), "passing_tds": pl.Series([], dtype=pl.Int64), "passing_interceptions": pl.Series([], dtype=pl.Int64),
+         "sacks_suffered": pl.Series([], dtype=pl.Int64), "sack_yards_lost": pl.Series([], dtype=pl.Int64),
+         "carries": pl.Series([], dtype=pl.Int64), "rushing_yards": pl.Series([], dtype=pl.Int64),
          "rushing_tds": pl.Series([], dtype=pl.Int64), "targets": pl.Series([], dtype=pl.Int64), "receptions": pl.Series([], dtype=pl.Int64),
          "receiving_yards": pl.Series([], dtype=pl.Int64), "receiving_tds": pl.Series([], dtype=pl.Int64), "rushing_fumbles": pl.Series([], dtype=pl.Int64),
          "receiving_fumbles": pl.Series([], dtype=pl.Int64), "sack_fumbles": pl.Series([], dtype=pl.Int64), "rushing_fumbles_lost": pl.Series([], dtype=pl.Int64),

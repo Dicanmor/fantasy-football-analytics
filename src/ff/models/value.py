@@ -94,13 +94,19 @@ def project_ppg(
     prior_k: float = 4.0,
     window_seasons: int = 3,
     season_boost: float = 3.0,
+    boost_ramp_games: int = 3,
 ) -> tuple[pl.DataFrame, dict[str, float]]:
     """Projected PPG for every active player + replacement PPG per position.
 
     Games where the player had < ``min_share`` of the offensive snaps are ignored (the game he got hurt in,
     garbage time): they say little about his role. Weights halve every ``half_life`` weeks, and games of the
-    current season count ``season_boost`` times more (roles change over the offseason; in backtests a boost of
-    3 cut the error ~4% versus no boost, while a shorter half-life made it worse).
+    current season count more (roles change over the offseason; in backtests a boost of 3 cut the error ~4%
+    versus no boost). Early in the season that boost is RAMPED UP over a player's first ``boost_ramp_games``
+    current-season games instead of applied at full strength immediately: at 3x from game one, a single boom
+    or bust week (e.g. one bad game in Week 1) got 3x the weight of any single game in the player's whole
+    history, which swings his projection far more than one game should. Backtesting the ramp against the
+    non-ramped version on weeks 1-3 showed a negligible cost in aggregate error (MAE +0.02) for a large drop
+    in that kind of single-game swing, so it is on by default.
     """
     season, week = as_of
     now_t = season * WEEKS + week
@@ -111,9 +117,18 @@ def project_ppg(
         )
         .join(active.select("gsis_id", "position"), on="gsis_id", how="inner")
         .with_columns(
-            w=0.5 ** ((now_t - (pl.col("season") * WEEKS + pl.col("week"))) / half_life)
-            * pl.when(pl.col("season") == season).then(season_boost).otherwise(1.0)
+            cur_rank=pl.when(pl.col("season") == season)
+            .then(pl.col("week").rank("ordinal").over("gsis_id", "season"))
+            .otherwise(None)
         )
+        .with_columns(
+            eff_boost=pl.when(pl.col("season") != season)
+            .then(1.0)
+            .when(boost_ramp_games <= 0)
+            .then(pl.lit(season_boost))
+            .otherwise(1.0 + (season_boost - 1.0) * (pl.col("cur_rank").clip(upper_bound=boost_ramp_games) / max(boost_ramp_games, 1)))
+        )
+        .with_columns(w=0.5 ** ((now_t - (pl.col("season") * WEEKS + pl.col("week"))) / half_life) * pl.col("eff_boost"))
     )
     agg = (
         hist.group_by("gsis_id")

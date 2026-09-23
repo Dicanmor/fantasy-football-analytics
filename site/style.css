@@ -76,3 +76,37 @@ input.adj { width: 64px; padding: 3px 6px; }
 .need { display: inline-flex; gap: 6px; align-items: baseline; border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; margin: 2px 6px 2px 0; font-size: 13px; }
 .need.weak { border-color: var(--bad); }
 .ctx { font-size: 13px; color: var(--muted); margin: 2px 0; }
+
+/* rank / tier tags */
+.tag.rk { color: var(--text); background: var(--chip); border: none; }
+.ranks { display: inline-flex; gap: 4px; margin: 4px 0; }
+.tag.tier { font-weight: 700; border: none; color: #1a1a1a; }
+.tier-S { background: #ffd54a; }
+.tier-A { background: #7ee787; }
+.tier-B { background: #8ecbff; }
+.tier-C { background: #c9c9c9; color: #1a1a1a; }
+.tier-D { background: #ffb37e; }
+.tier-F { background: #ff8b8b; }
+
+/* clickable player name -> stats card */
+button.link { background: none; border: none; padding: 0; color: var(--text); font: inherit; text-decoration: underline dotted; cursor: pointer; }
+button.link:hover { color: var(--accent, #5aa9ff); }
+
+/* delta chips: green/amber/red at-a-glance comparison */
+.delta-row { display: flex; gap: 8px; margin: 6px 0; }
+.delta-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; }
+.delta-chip.good { background: rgba(46, 204, 113, .18); color: #2ecc71; }
+.delta-chip.bad { background: rgba(231, 76, 60, .18); color: #e74c3c; }
+.delta-chip.mid { background: rgba(241, 196, 15, .18); color: #d8ae1a; }
+.dc-label { opacity: .75; font-weight: 500; }
+td .delta-chip { padding: 2px 8px; font-size: 12px; }
+.tag.good { background: rgba(46, 204, 113, .18); color: #2ecc71; border: none; margin-left: 6px; }
+
+/* player stats card (modal) */
+.modal { position: fixed; inset: 0; background: rgba(0, 0, 0, .5); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+.modal.hidden { display: none; }
+.modal-box { background: var(--bg, #14161a); border: 1px solid var(--line); border-radius: 12px; padding: 20px; max-width: 420px; width: 100%; position: relative; }
+.modal-close { position: absolute; top: 8px; right: 10px; background: none; border: none; font-size: 20px; color: var(--muted); cursor: pointer; }
+.pc-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.pc-head h3 { margin: 0; }
+.pc-badges { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }

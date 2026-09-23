@@ -121,7 +121,7 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
   click(w, d.querySelector("#finder-run"));
   const found = d.querySelector("#finder-results").textContent;
   assert.match(found, /Suggested trades|No trades found/);
-  const open1 = d.querySelector("#finder-results button");
+  const open1 = d.querySelector("#finder-results button.primary");
   if (open1) {
     click(w, open1);
     assert.ok(!d.querySelector("#tab-trade").classList.contains("hidden"), "finder proposal opens in the calculator");
@@ -143,8 +143,21 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
   click(w, [...d.querySelectorAll("#pos-filter button")].find((b) => b.textContent === "DEF"));
   assert.strictEqual(d.querySelectorAll("#values-table tbody tr").length, 32);
   click(w, [...d.querySelectorAll("#pos-filter button")].find((b) => b.textContent === "TE"));
-  const tePos = [...d.querySelectorAll("#values-table tbody tr")].map((r) => r.children[2].textContent);
-  assert.ok(tePos.length > 10 && tePos.every((p) => p === "TE"));
+  const tePos = [...d.querySelectorAll("#values-table tbody tr")].map((r) => r.children[2].textContent); // Pos column now shows a rank badge, e.g. "TE5"
+  assert.ok(tePos.length > 10 && tePos.every((p) => p.startsWith("TE")));
+
+  // rank/tier badges and the player-card modal
+  const posBadge = d.querySelector("#values-table tbody tr td:nth-child(3) .tag");
+  assert.match(posBadge.textContent, /^TE\d+$/);
+  const nameBtn = d.querySelector("#values-table tbody tr button.link");
+  click(w, nameBtn);
+  const modal = d.querySelector("#player-modal");
+  assert.ok(!modal.classList.contains("hidden"), "player card opens");
+  assert.match(modal.textContent, /Proj PPG/);
+  assert.match(modal.textContent, /Tier/);
+  click(w, d.querySelector("#player-modal-close"));
+  assert.ok(modal.classList.contains("hidden"), "player card closes");
+
   assert.deepStrictEqual(errors, [], "no script errors: " + errors.join("; "));
 
   // ---- Sleeper unreachable (e.g. CORS): clear message, page still usable

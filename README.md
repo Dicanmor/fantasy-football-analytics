@@ -12,9 +12,9 @@ The goal is a fast, easy-to-use website that answers the questions I actually as
 | **Data pipeline** | Reproducible download of play-by-play, player stats, injuries, snap counts, rosters, team stats and opportunity data | ✅ Done |
 | **Matchup guide** | How many fantasy points does each defense allow to each position? Shown as a 0-100 score with Favorable / Medium / Tough labels | 🟡 Works, but a weak predictor (see below): used as context |
 | **Injury analysis** | How long do injuries last, how do stats change after a return, does injury history predict anything? | ✅ Done (findings below) |
-| **Player value model** | Rest-of-season points over replacement, with role context and your own adjustments | ✅ v2 (backtested) |
+| **Player value model** | Rest-of-season points over replacement, rank/position badges, S-F tiers, and your own adjustments | ✅ v2.1 (ramp fix + tiers) |
 | **Team power rankings** | Rank every team by lineup (flex, K, DEF, IR aware) and depth | ✅ v2 |
-| **Trade calculator** | Value exchanged **and** the effect on both lineups, with this season's context | ✅ v2 |
+| **Trade calculator** | Value exchanged **and** the effect on both lineups, color-coded, with this season's context and a player stats card | ✅ v2.1 |
 | **Trade finder** | Trades that fix the weakest spots of your lineup without gutting the other team | ✅ New |
 | **Website** | Static site on GitHub Pages, refreshed weekly by GitHub Actions; reads your real Sleeper lineup | ✅ v2 |
 
@@ -124,6 +124,33 @@ show the *facts the data does have* (touch shares, teammates, matchup) so your a
 **Assumptions to challenge:** redraft horizon (rest of this season; no aging curve or future value), flex/bench share constants, default K/DEF scoring,
 DEF ids assume Sleeper uses team abbreviations (LAR for the Rams), no schedule-strength adjustment (the matchup signal is weak).
 
+### Ranks and tiers
+
+Every player has an **overall rank** and a **position rank** (e.g. "WR2"), plus a **tier (S/A/B/C/D/F)**, both
+recomputed live in the browser for your connected league (they can shift a little with your league size and your
+own adjustments, so they are not baked into the data file). Tiers are found with **Jenks natural breaks**, a
+standard way to split a sorted list of numbers into groups that keeps each group's numbers close together and the
+groups far apart, instead of a fixed cutoff like "top 12": two players a tier apart are worth noticeably more or
+less than each other, two players in the same tier are close enough that the order between them barely matters.
+Click any player's name (lineup, trade calculator, player values) for a small card with these badges plus his
+projection breakdown.
+
+### A bug fixed by user report: early-season swings from a single game
+
+A user flagged that in Week 2 some well-established QBs (e.g. Matthew Stafford) were ranking near or below
+replacement, below backups on worse offenses. Cause: the current-season boost (page above) was applied at full
+strength (3x) from a player's very first game of the season. With only 1-2 games played, that one game could carry
+3x the weight of any single game in the player's whole history, so one bad Week 1 outing swung a season-long
+projection far more than one game should (confirmed on Stafford: a single 4.1-point Week 1 dropped his weighted
+average by about 3 points). **Fix:** the boost now ramps up linearly over a player's first 3 games of the season
+instead of applying at full strength immediately (`boost_ramp_games` in `ff/models/value.py`). Backtested against
+the non-ramped version on Weeks 1-3 (2022-2025): aggregate error is about the same (MAE +0.02), for a real drop in
+this kind of single-game swing (see `tests/test_value.py::test_season_boost_ramps_up_over_a_players_first_games_this_season`).
+Not every case like this is a bug, though: Jaxson Dart ranking above Lamar Jackson survived the fix, because his
+recent per-game numbers really have been that high in a small sample (13 games) — that is a real signal with a
+real small-sample caveat, not a data error, and the rank/tier badges make that kind of "close but not equal" call
+easier to read than a raw ranking number.
+
 ## Power rankings
 
 `ff/models/power.py` (mirrored in `site/js/core.js`, checked by `tests/test_js_parity.py` on three different league formats):
@@ -140,13 +167,20 @@ Try it: `python -m ff.models.power rosters.json`.
 
 ## Trade calculator and finder
 
-- **Calculator:** value each side gives and gets (points over replacement), the effect on each team's power (lineup and depth), and a
-  *Context* section per player (projection breakdown, matchup, touch share, teammate competition) with an adjustment box.
-  Value says what a player is worth on any roster; the power delta says what *your* lineup gains or loses.
-- **Finder:** ranks your lineup groups (QB, RB, WR, TE, FLEX, K, DEF) against the league, then searches 1-for-1 and 2-for-1 trades
-  (you give two, get one) with every other team. A proposal must improve your lineup by >= 0.5 PPG, not hurt the partner's by more than 0.3
-  and keep values within about +/-12% for you; proposals that also improve the partner are marked win-win. You can restrict it to positions.
-  It runs in ~0.1 s in the browser for a 12-team league.
+- **Calculator:** value each side gives and gets (points over replacement), the effect on each team's power
+  (color-coded green/amber/red chips for at-a-glance reading, plus the numbers in a small table), and a *Context*
+  section per player (projection breakdown, matchup, touch share, teammate competition, rank/tier badges) with an
+  adjustment box. Value says what a player is worth on any roster; the power delta says what *your* lineup gains
+  or loses.
+- **Finder:** ranks your lineup groups (QB, RB, WR, TE, FLEX, K, DEF) against the league, then searches 1-for-1 and
+  2-for-1 trades (you give two, get one) with every other team. A proposal must improve your lineup by >= 0.5 PPG,
+  not hurt the partner's by more than 0.3 and keep values within about +/-12% for you; proposals that also improve
+  the partner are marked win-win. Each card shows the same color-coded chips and opens straight into the trade
+  calculator's full comparison ("Ver comparativo"). You can restrict it to positions. It runs in ~0.1 s in the
+  browser for a 12-team league.
+- **Player card:** click any player's name anywhere on the site for a small card with his projection, rank/tier
+  badges, matchup and role — a lighter "stats card" than a full box score (a game-by-game log is not in the data
+  file; see Known limits below).
 
 ## Website
 
@@ -167,13 +201,28 @@ python -m http.server -d site 8000             # then open http://localhost:8000
 ```
 
 **Deploy (GitHub Pages):** repo Settings -> Pages -> Source: **GitHub Actions**. `.github/workflows/deploy.yml` runs the tests, downloads
-fresh data, rebuilds the values and publishes `site/` every Tuesday (or on demand from the Actions tab).
+fresh data, rebuilds the values and publishes `site/` every day (or on demand from the Actions tab); your Sleeper roster, lineup and trades
+are always read live by the browser, so only the projections/matchups/injuries side needs this refresh.
 
 **Tests:** `pytest` (Python + JS parity) and `cd web_tests && npm install && npm test` (JS logic and a jsdom smoke test of the page with a
 mocked Sleeper API).
 
-**Known limits:** the league import was confirmed against the live Sleeper API by hand (username and league ID); the automated tests use mocks.
-The GitHub Actions workflow has been validated but not yet run on GitHub. Sleeper's API is free for non-commercial use only.
+**Known limits:**
+- The league import was confirmed against the live Sleeper API by hand (username and league ID); the automated tests use mocks.
+- No game-by-game log is in the data file (only a recency-weighted season summary), to keep the JSON small — the player card shows season
+  context, not a box score, and there is no "value went up/down this week" indicator yet, since that needs a stored history of past values
+  the static site does not currently keep.
+- No automated feed of outside "ball knowledge" (beat-writer or expert commentary, injury-report nuance not yet reflected in the stats):
+  considered scraping specific X/Twitter accounts for this, but decided against building it — X's API for that kind of use is paid, scraping
+  outside an API risks violating its terms, and a scraper needs somewhere to run on a schedule, which a static GitHub Pages site does not
+  have. The adjustment boxes exist for exactly this: read the news yourself and enter what the stats do not know.
+- Sleeper scoring is only checked for PPR (a warning shows for non-standard reception scoring); K and DEF use a fixed default scoring, not
+  your league's.
+- The GitHub Actions workflow has been validated but not yet run on GitHub. Sleeper's API is free for non-commercial use only.
+
+**On the roadmap, not built yet:** a weekly scorecard (projected vs. actual, to keep the backtests honest going forward), a team
+stats/depth-chart tab (who is a team's WR1/WR2/etc., and which fantasy team owns each of a real team's players), a waiver-wire tab
+(add/drop recommendations ranked like the trade finder), multi-player comparisons, and chaining several trades together to plan a sequence.
 
 ## Quickstart
 

@@ -72,6 +72,21 @@ const found = FF.findTrades(teams, 1, F, FLEX, { focus: ["WR"] });
 assert.ok(found.length > 0 && found[0].myDelta > 0.5 && found[0].theirDelta >= -0.3 && found[0].fairness >= -0.12);
 assert.ok(found[0].fills.length > 0 && found.every((x) => x.get.every((id) => F[id].pos === "WR")));
 
+// ranks + tiers
+const rv = (pos, value, name) => ({ pos, value, ppg: value, avail: 1, exp_games: 10, name, team: "AAA" });
+const RV = {
+  a: rv("WR", 200, "a"), b: rv("WR", 180, "b"), c: rv("WR", 40, "c"), d: rv("WR", 35, "d"),
+  e: rv("WR", 30, "e"), f: rv("WR", 25, "f"), g: rv("WR", 20, "g"), h: rv("WR", 15, "h"), q: rv("QB", 90, "q"),
+};
+const ranks = FF.computeRanks(RV);
+assert.deepStrictEqual([ranks.a.pos, ranks.b.pos, ranks.c.pos, ranks.d.pos], [1, 2, 3, 4]);
+assert.strictEqual(ranks.a.overall, 1); // highest value overall (200) among these
+assert.strictEqual(FF.posLabel("WR", 2), "WR2");
+const tiers = FF.computeTiers(RV);
+assert.strictEqual(tiers.a, tiers.b, "close values (200 vs 180) land in the same tier");
+assert.notStrictEqual(tiers.b, tiers.c, "a big gap (180 vs 40) starts a new tier");
+assert.ok(["S", "A", "B", "C", "D", "F"].includes(tiers.a));
+
 // labels + matchup
 assert.deepStrictEqual(FF.slotLabels(["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "K", "DEF"]), ["QB", "RB1", "RB2", "WR1", "WR2", "TE", "FLEX", "K", "DEF"]);
 assert.deepStrictEqual(["Favorable", "Medium", "Tough", null].map((l, i) => FF.matchupLabel([87, 60, 30, null][i], model).label), ["Favorable", "Medium", "Tough", null]);

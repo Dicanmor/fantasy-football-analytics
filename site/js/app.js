@@ -36,7 +36,7 @@
   const api = FF.createSleeper(SLEEPER_BASE, (...a) => window.fetch(...a));
 
   const state = {
-    league: { ...DATA.default_league }, leagueName: null, repl: {}, values: {}, ctx: null,
+    league: { ...DATA.default_league }, leagueName: null, repl: {}, values: {}, ctx: null, ranks: {}, tiers: {},
     user: null, leagues: [], teams: [],
     adj: { players: {}, teams: {} },
     trade: { meId: null, partnerId: null, give: [], get: [] },
@@ -55,6 +55,8 @@
     state.repl = FF.replacementLevels(DATA.pools, state.league, MODEL);
     state.values = FF.valuesForLeague(DATA.players, state.repl, state.adj.players, state.adj.teams);
     state.ctx = { elig: MODEL.slot_eligible, repl: state.repl, league: state.league };
+    state.ranks = FF.computeRanks(state.values);
+    state.tiers = FF.computeTiers(state.values);
   }
 
   function setAdj(id, delta) {
@@ -80,6 +82,52 @@
     return t;
   }
   const label = (p) => `${p.name} · ${p.pos}${p.team ? " " + p.team : ""}`;
+  const TIER_TITLE = "Tier: natural groupings in the value gaps for this position (S = best). Two players a tier apart differ more than two in the same tier.";
+  function rankBadges(id) {
+    const r = state.ranks[id];
+    if (!r) return null;
+    const p = state.values[id];
+    const tier = state.tiers[id];
+    return el("span", { class: "ranks" },
+      el("span", { class: "tag rk", title: "Overall rank among rostered players" }, `#${r.overall} ovr`),
+      el("span", { class: "tag rk", title: `Rank among ${p.pos}s` }, FF.posLabel(p.pos, r.pos)),
+      tier ? el("span", { class: "tag tier tier-" + tier, title: TIER_TITLE }, "Tier " + tier) : null);
+  }
+
+  // ------------------------------------------------------------------ player card modal
+  function openPlayerCard(id) {
+    const p = state.values[id];
+    if (!p) return;
+    const modal = $("#player-modal");
+    const body = clear($("#player-modal-body"));
+    body.append(
+      el("div", { class: "pc-head" }, el("h3", { text: p.name }), el("span", { class: "muted", text: `${p.pos}${p.team ? " · " + p.team : ""}` })),
+      el("div", { class: "pc-badges" }, rankBadges(id), statusTag(p), matchupBadge(p)),
+      el("div", { class: "stats" },
+        el("div", { class: "stat" }, el("span", { class: "muted small", text: "Proj PPG" }), el("b", { text: fmt(p.ppg) })),
+        el("div", { class: "stat" }, el("span", { class: "muted small", text: "Exp. games" }), el("b", { text: fmt(p.exp_games) }), el("span", { class: "muted small", text: `${Math.round(p.avail * 100)}% availability` })),
+        el("div", { class: "stat" }, el("span", { class: "muted small", text: "Value" }), el("b", { text: fmt(p.value, 0) + " pts" }), el("span", { class: "muted small", text: "over replacement" }))),
+      roleText(p) ? el("p", { class: "ctx", text: roleText(p) }) : null,
+      p.opp ? el("p", { class: "ctx", text: `This week: vs ${p.opp}, matchup score ${p.mu}/100 for ${p.pos}s (100 = easiest defense)` }) : null,
+      el("p", { class: "muted small", text: "PPG is a recency-weighted average of his own games (current season weighted heaviest); it is not a week-by-week box score." }));
+    modal.classList.remove("hidden");
+  }
+  function wirePlayerCard() {
+    $("#player-modal").addEventListener("click", (e) => { if (e.target.id === "player-modal") $("#player-modal").classList.add("hidden"); });
+    $("#player-modal-close").addEventListener("click", () => $("#player-modal").classList.add("hidden"));
+  }
+  const nameLink = (id, text) => el("button", { class: "link", onclick: () => openPlayerCard(id), text: text || (state.values[id] && state.values[id].name) || id });
+
+  // small green/amber/red chip for a power delta, so "who gains, who loses" reads at a glance
+  function deltaChip(value, labelText) {
+    const cls = value > 0.3 ? "good" : value < -0.3 ? "bad" : "mid";
+    const arrow = value > 0.3 ? "▲" : value < -0.3 ? "▼" : "•";
+    return el("span", { class: "delta-chip " + cls },
+      el("span", { class: "dc-label", text: labelText }), el("span", { class: "dc-val", text: `${arrow} ${signed(value)}` }));
+  }
+  function deltaBar(myDelta, theirDelta) {
+    return el("div", { class: "delta-row" }, deltaChip(myDelta, "Tú"), deltaChip(theirDelta, "Ellos"));
+  }
 
   // ------------------------------------------------------------------ status / header
   function setStatus(msg, kind) {
@@ -148,14 +196,14 @@
     const rows = r.lineup.map((x, i) => el("tr", {},
       el("td", {}, el("span", { class: "slot", text: labels[i] })),
       x.player
-        ? [el("td", { text: `${x.player.name} (${x.player.pos}${x.player.team ? " " + x.player.team : ""})` }),
+        ? [el("td", {}, nameLink(x.player.id), el("span", { class: "muted small", text: ` ${x.player.pos}${x.player.team ? " " + x.player.team : ""}` })),
            el("td", { class: "num", text: fmt(x.player.ppg) + " ppg" }),
            el("td", {}, statusTag(x.player), " ", matchupBadge(x.player))]
         : [el("td", { class: "muted", text: "empty (waiver replacement assumed)" }), el("td"), el("td")]));
     const simple = (title, list) => list.length ? [
       el("div", { class: "section-label", text: title }),
       el("table", { class: "lineup-table" }, el("tbody", {}, list.map((p) => el("tr", {},
-        el("td", { text: `${p.name} (${p.pos}${p.team ? " " + p.team : ""})` }), el("td", { class: "num", text: fmt(p.ppg) + " ppg" }),
+        el("td", {}, nameLink(p.id), el("span", { class: "muted small", text: ` ${p.pos}${p.team ? " " + p.team : ""}` })), el("td", { class: "num", text: fmt(p.ppg) + " ppg" }),
         el("td", {}, statusTag(p), " ", matchupBadge(p)))))),
     ] : [];
     return el("div", {},
@@ -269,7 +317,8 @@
       if (!p) return null;
       const adj = state.adj.players[id];
       return el("div", { class: "proposal" },
-        el("div", { class: "head" }, `${p.name} `, el("span", { class: "muted", text: `${p.pos} ${p.team || ""}` }), " ", statusTag(p), " ", matchupBadge(p)),
+        el("div", { class: "head" }, nameLink(id), " ", el("span", { class: "muted", text: `${p.pos} ${p.team || ""}` }), " ", statusTag(p), " ", matchupBadge(p)),
+        el("div", {}, rankBadges(id)),
         el("div", { class: "ctx", text: `Projection ${fmt(p.ppg)} ppg × ${fmt(p.exp_games)} expected games (${Math.round(p.avail * 100)}% availability) = ${fmt(p.value, 0)} pts above replacement` }),
         roleText(p) ? el("div", { class: "ctx", text: roleText(p) }) : null,
         el("label", { class: "small" }, "Your adjustment (ppg) ",
@@ -301,10 +350,10 @@
       const row = (name, s) => el("tr", {},
         el("td", { text: name }),
         el("td", { class: "num", text: `${fmt(s.before)} → ${fmt(s.after)}` }),
-        el("td", { class: "num " + (s.deltaPower >= 0 ? "pos" : "neg"), text: signed(s.deltaPower) }),
-        el("td", { class: "num " + (s.deltaStarters >= 0 ? "pos" : "neg"), text: signed(s.deltaStarters) }),
-        el("td", { class: "num " + (s.deltaDepth >= 0 ? "pos" : "neg"), text: signed(s.deltaDepth) }));
-      card.append(el("h3", { text: "Effect on each lineup (power score)" }),
+        el("td", { class: "num" }, deltaChip(s.deltaPower, "")),
+        el("td", { class: "num" }, deltaChip(s.deltaStarters, "")),
+        el("td", { class: "num" }, deltaChip(s.deltaDepth, "")));
+      card.append(el("h3", { text: "Effect on each lineup (power score)" }), deltaBar(full.you.deltaPower, full.them.deltaPower),
         el("div", { class: "table-wrap" }, el("table", {},
           el("thead", {}, el("tr", {}, ...["Team", "Power", "Δ Power", "Δ Lineup", "Δ Depth"].map((h, i) => el("th", { class: i ? "num" : "", text: h })))),
           el("tbody", {}, row(me.name + " (you)", full.you), row(them.name, full.them)))));
@@ -366,15 +415,15 @@
     } else {
       card.append(el("p", { class: "muted small", text: "Sorted by how much they improve your lineup, giving credit when the other team also improves (those are the ones most likely to be accepted). Values stay within about ±12% of each other for you." }));
     }
-    const labels = FF.slotLabels(state.league.slots);
     results.forEach((r) => {
-      const names = (ids) => ids.map((id) => state.values[id].name).join(" + ");
+      const names = (ids) => ids.map((id) => nameLink(id));
+      const join = (nodes) => nodes.flatMap((n, i) => (i ? [" + ", n] : [n]));
       card.append(el("div", { class: "proposal" },
-        el("div", { class: "head", text: `Send ${names(r.give)} → get ${names(r.get)}` }),
-        el("div", { class: "meta" }, `with ${r.partner.name} · `,
-          `your lineup ${signed(r.myDelta)} · theirs ${signed(r.theirDelta)}${r.mutual ? " (win-win)" : ""} · value ${fmt(r.giveValue, 0)} ↔ ${fmt(r.getValue, 0)}`,
-          r.fills.length ? ` · fills ${r.fills.map((f) => `${f.slot} ${signed(f.gain)}`).join(", ")}` : ""),
-        el("button", { text: "Open in trade calculator", onclick: () => openInCalculator(meId, r) })));
+        el("div", { class: "head" }, "Send ", ...join(names(r.give)), " → get ", ...join(names(r.get)), r.mutual ? el("span", { class: "tag good", text: "win-win" }) : null),
+        el("div", { class: "muted small" }, `with ${r.partner.name}`),
+        deltaBar(r.myDelta, r.theirDelta),
+        r.fills.length ? el("div", { class: "muted small" }, "Fills: " + r.fills.map((f) => `${f.slot} ${signed(f.gain)}`).join(", ")) : null,
+        el("button", { class: "primary", text: "Ver comparativo →", onclick: () => openInCalculator(meId, r) })));
     });
     root.append(card);
   }
@@ -387,7 +436,7 @@
 
   // ------------------------------------------------------------------ player values table
   const COLUMNS = [
-    ["rank", "#", true], ["name", "Player", false], ["pos", "Pos", false], ["team", "Team", false], ["age", "Age", true],
+    ["rank", "#", true], ["name", "Player", false], ["pos_rank", "Pos", true], ["tier", "Tier", false], ["team", "Team", false], ["age", "Age", true],
     ["ppg", "Proj PPG", true], ["exp_games", "Exp games", true], ["value", "Value", true],
     ["mu", "Matchup", true], ["share", "Role", true], ["adj", "Adj", true], ["status", "Status", false],
   ];
@@ -398,9 +447,10 @@
     })));
   }
   function renderValues() {
-    let rows = Object.entries(state.values).map(([id, p]) => ({ id, ...p, adj: state.adj.players[id] }));
-    rows.sort((a, b) => b.value - a.value);
-    rows.forEach((r, i) => { r.rank = i + 1; });
+    let rows = Object.entries(state.values).map(([id, p]) => ({
+      id, ...p, adj: state.adj.players[id], rank: state.ranks[id] ? state.ranks[id].overall : null,
+      pos_rank: state.ranks[id] ? state.ranks[id].pos : null, tier: state.tiers[id] || null,
+    }));
     if (state.pos !== "ALL") rows = rows.filter((r) => r.pos === state.pos);
     if (state.q) rows = rows.filter((r) => r.name.toLowerCase().includes(state.q.toLowerCase()));
     const { key, dir } = state.sort;
@@ -416,7 +466,10 @@
       el("th", { class: "sortable" + (num ? " num" : ""), onclick: () => { state.sort = { key: k, dir: state.sort.key === k ? -state.sort.dir : (num ? -1 : 1) }; renderValues(); },
         text: lab + (state.sort.key === k ? (state.sort.dir > 0 ? " ▲" : " ▼") : "") })))));
     table.append(el("tbody", {}, rows.slice(0, 300).map((r) => el("tr", {},
-      el("td", { class: "num", text: r.rank }), el("td", { text: r.name }), el("td", { text: r.pos }), el("td", { text: r.team || "" }),
+      el("td", { class: "num", text: r.rank }), el("td", {}, nameLink(r.id)),
+      el("td", { class: "num" }, el("span", { class: "tag rk", text: FF.posLabel(r.pos, r.pos_rank) })),
+      el("td", {}, r.tier ? el("span", { class: "tag tier tier-" + r.tier, title: TIER_TITLE, text: r.tier }) : null),
+      el("td", { text: r.team || "" }),
       el("td", { class: "num", text: fmt(r.age) }), el("td", { class: "num", text: fmt(r.ppg) }), el("td", { class: "num", text: fmt(r.exp_games) }),
       el("td", { class: "num", text: fmt(r.value, 0) }),
       el("td", { class: "num" }, matchupBadge(r)),
@@ -463,6 +516,7 @@
   function init() {
     loadAdj();
     recompute();
+    wirePlayerCard();
     $("#season").value = DATA.as_of.season;
     try { $("#username").value = localStorage.getItem("ff_username") || ""; } catch (e) { /* ignore */ }
 

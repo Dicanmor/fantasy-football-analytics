@@ -150,6 +150,78 @@
     };
   }
 
+  // ---------------------------------------------------------------- ranks + tiers
+  /* Overall and position rank, computed live from THIS league's values (they shift a little with the
+   * connected league's replacement levels and your own adjustments, so this is done in the browser rather
+   * than baked into the data file). */
+  function computeRanks(values) {
+    const byId = Object.entries(values);
+    const overall = byId.slice().sort((a, b) => b[1].value - a[1].value);
+    const ranks = {};
+    overall.forEach(([id], i) => { ranks[id] = { overall: i + 1, pos: 0 }; });
+    const byPos = {};
+    byId.forEach(([id, p]) => { (byPos[p.pos] = byPos[p.pos] || []).push([id, p]); });
+    Object.values(byPos).forEach((list) => {
+      list.sort((a, b) => b[1].value - a[1].value).forEach(([id], i) => { ranks[id].pos = i + 1; });
+    });
+    return ranks;
+  }
+  const posLabel = (pos, posRank) => `${pos}${posRank}`;
+
+  /* Tiers via Jenks natural breaks (the standard way to find "natural" clusters in a sorted list of numbers,
+   * commonly used for exactly this kind of tier list): looks for the breaks that keep each group's numbers as
+   * close together, and different groups as far apart, as possible. Computed per position on live values, so
+   * tiers reflect the actual gaps in YOUR league, not a fixed cutoff like "top 12". */
+  function jenksBreaks(sorted, classes) {
+    const n = sorted.length;
+    if (n <= classes) return sorted.map((_, i) => i); // one player per tier if there are that few
+    const mat1 = Array.from({ length: n + 1 }, () => new Array(classes + 1).fill(0));
+    const mat2 = Array.from({ length: n + 1 }, () => new Array(classes + 1).fill(Infinity));
+    for (let i = 1; i <= classes; i++) { mat1[1][i] = 1; mat2[1][i] = 0; for (let j = 2; j <= n; j++) mat2[j][i] = Infinity; }
+    let v = 0;
+    for (let l = 2; l <= n; l++) {
+      let s1 = 0, s2 = 0, w = 0;
+      for (let m = 1; m <= l; m++) {
+        const i3 = l - m + 1;
+        const val = sorted[i3 - 1];
+        w++; s1 += val; s2 += val * val;
+        v = s2 - (s1 * s1) / w;
+        const i4 = i3 - 1;
+        if (i4 !== 0) {
+          for (let j = 2; j <= classes; j++) {
+            if (mat2[l][j] >= v + mat2[i4][j - 1]) { mat1[l][j] = i3; mat2[l][j] = v + mat2[i4][j - 1]; }
+          }
+        }
+      }
+      mat1[l][1] = 1; mat2[l][1] = v;
+    }
+    const idx = [n];
+    let k = n, cls = classes;
+    while (cls > 1) { const id = mat1[k][cls] - 2; idx.push(id); k = mat1[k][cls] - 1; cls--; }
+    return idx.sort((a, b) => a - b); // last index (0-based, inclusive) of each tier, ascending
+  }
+
+  const TIER_LABELS = ["S", "A", "B", "C", "D", "F"];
+  /* Returns {id: "S"|"A"|...} per position, using up to 6 tiers (fewer if the position has few rostered players). */
+  function computeTiers(values, classes = 6) {
+    const out = {};
+    const byPos = {};
+    Object.entries(values).forEach(([id, p]) => { if (p.value > 0) (byPos[p.pos] = byPos[p.pos] || []).push([id, p]); });
+    Object.entries(byPos).forEach(([, list]) => {
+      list.sort((a, b) => b[1].value - a[1].value);
+      const vals = list.map(([, p]) => p.value);
+      const k = Math.min(classes, list.length);
+      const breaks = jenksBreaks(vals.slice().reverse(), k); // ascending for the algorithm
+      const cut = breaks.map((b) => vals.length - 1 - b).sort((a, b) => a - b); // back to descending indices
+      let tier = 0;
+      list.forEach(([id], i) => {
+        if (tier < cut.length - 1 && i > cut[tier]) tier++;
+        out[id] = TIER_LABELS[Math.min(tier, TIER_LABELS.length - 1)];
+      });
+    });
+    return out;
+  }
+
   // ---------------------------------------------------------------- needs + trade finder
   const groupOf = (slot) => (["QB", "RB", "WR", "TE", "K", "DEF"].includes(slot) ? slot : "FLEX");
 
@@ -308,6 +380,6 @@
   return {
     replacementRank, replacementLevels, valuesForLeague, pAtLeast, teamPower, powerRankings, slotLabels,
     evaluateValue, evaluateTrade, verdictFor, teamNeeds, findTrades, matchupLabel, parseLeague, buildTeams,
-    searchPlayers, createSleeper, SleeperError, FAIR_TOLERANCE,
+    searchPlayers, createSleeper, SleeperError, FAIR_TOLERANCE, computeRanks, computeTiers, posLabel,
   };
 });

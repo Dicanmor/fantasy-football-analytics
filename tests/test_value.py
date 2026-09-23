@@ -5,6 +5,25 @@ from ff.league import League
 from ff.models.value import expected_remaining_absence, load_adjustments, project_ppg, remaining_games
 
 
+def test_season_boost_ramps_up_over_a_players_first_games_this_season():
+    """A single current-season game should not get the full boost (it swung real projections wildly:
+    one bad Week 1 game at full 3x weight briefly dropped a normally-strong veteran QB below replacement)."""
+    log = pl.DataFrame(
+        {
+            "gsis_id": ["p"] * 5, "season": [2025, 2025, 2025, 2026, 2026], "week": [10, 14, 18, 1, 2],
+            "key": [202510, 202514, 202518, 202601, 202602], "ppr": [20.0, 20.0, 20.0, 0.0, 20.0],
+            "offense_pct": [1.0] * 5,
+        }
+    )
+    directory = pl.DataFrame({"gsis_id": ["p"]})
+    active = pl.DataFrame({"gsis_id": ["p"], "position": ["QB"]})
+    league = League(teams=1, slots=("QB",))
+    ramped, _ = project_ppg(log, directory, active, league, (2026, 3), boost_ramp_games=3)
+    full, _ = project_ppg(log, directory, active, league, (2026, 3), boost_ramp_games=0)
+    # with the ramp, one bad game (week 1) counts less than with the old always-full boost
+    assert ramped["raw_ppg"][0] > full["raw_ppg"][0]
+
+
 def test_replacement_rank_depends_on_league_size_and_flex():
     assert League(teams=12).replacement_rank("RB") == round(12 * (2 + 0.45 + 1.8))   # default has 1 FLEX
     no_flex = League(teams=12, slots=("QB", "RB", "RB", "WR", "WR", "TE", "K", "DEF"))

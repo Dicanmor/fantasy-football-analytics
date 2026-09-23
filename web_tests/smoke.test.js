@@ -98,6 +98,9 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
   const result = d.querySelector("#trade-result").textContent;
   assert.match(result, /Effect on each lineup/);
   assert.match(result, /Context/);
+  assert.match(result, /Ranking de tu equipo en la liga/);
+  assert.ok(d.querySelector(".rank-table"), "League/position rank table renders");
+  assert.ok(d.querySelectorAll(".rank-table tbody tr").length >= 6, "one row per group plus League");
   assert.match(result, /availability/);
   assert.match(result, /Role:/);
 
@@ -189,7 +192,20 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
   await tick(60);
   const pcBody = d.querySelector("#pc-body");
   assert.ok(pcBody.querySelector(".weekly-table") || /No hay historial semanal/.test(pcBody.textContent), "weekly tab renders a table or the empty-state message");
-  assert.deepStrictEqual(errors, [], "weekly tab did not throw: " + errors.join("; "));
+  click(w, d.querySelector("#player-modal-close"));
+
+  // QB weekly table shows passing stats (ATT/CMP/YD/TD/INT), not the RB/WR receiving columns
+  click(w, [...d.querySelectorAll("#pos-filter button")].find((b) => b.textContent === "QB"));
+  click(w, d.querySelector("#values-table tbody button.link"));
+  click(w, [...d.querySelectorAll("#player-modal .pc-tab")].find((b) => b.textContent === "Semana a semana"));
+  await tick(60);
+  const qbTable = d.querySelector("#pc-body .weekly-table");
+  if (qbTable) {
+    assert.match(qbTable.querySelectorAll("thead tr")[0].textContent, /PASS/);
+    assert.doesNotMatch(qbTable.querySelectorAll("thead tr")[0].textContent, /RECEIVING/);
+    assert.match(qbTable.querySelectorAll("thead tr")[1].textContent, /CMP/);
+  }
+  assert.deepStrictEqual(errors, [], "QB weekly tab did not throw: " + errors.join("; "));
   click(w, d.querySelector("#player-modal-close"));
   assert.ok(modal.classList.contains("hidden"), "player card closes");
 
@@ -201,6 +217,9 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
   assert.ok(!modal.classList.contains("hidden"), "compare view opens in the player modal");
   assert.match(modal.textContent, /Comparativo/);
   assert.strictEqual(d.querySelectorAll("#player-modal .compare-table th").length, 3, "one header cell per player plus the blank label column");
+  await tick(150); // openCompareView() lazily fetches player_weeks.json for the week-to-week section
+  assert.match(modal.textContent, /Semana a semana \(temporada actual\)/);
+  assert.match(d.querySelector("#compare-weeks").textContent, /WK|No hay historial/);
   click(w, d.querySelector("#player-modal-close"));
 
   assert.deepStrictEqual(errors, [], "no script errors: " + errors.join("; "));

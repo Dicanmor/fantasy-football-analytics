@@ -72,6 +72,28 @@ const found = FF.findTrades(teams, 1, F, FLEX, { focus: ["WR"] });
 assert.ok(found.length > 0 && found[0].myDelta > 0.5 && found[0].theirDelta >= -0.3 && found[0].fairness >= -0.12);
 assert.ok(found[0].fills.length > 0 && found.every((x) => x.get.every((id) => F[id].pos === "WR")));
 
+// leagueRanks: current vs. after-trade rank per group, and overall League rank
+{
+  const teams3 = [
+    { rosterId: 1, players: ["q1", "r1", "w1", "t1", "r2"], reserve: [], taxi: [] },
+    { rosterId: 2, players: ["q2", "r3", "w2", "t2", "w3"], reserve: [], taxi: [] },
+    { rosterId: 3, players: ["q3", "r4", "w4", "t3", "r5"], reserve: [], taxi: [] },
+  ];
+  const V3 = {
+    q1: p("QB", 18), r1: p("RB", 15), w1: p("WR", 8), t1: p("TE", 7), r2: p("RB", 7),
+    q2: p("QB", 25), r3: p("RB", 20), w2: p("WR", 22), t2: p("TE", 12), w3: p("WR", 6),
+    q3: p("QB", 15), r4: p("RB", 10), w4: p("WR", 10), t3: p("TE", 9), r5: p("RB", 5),
+  };
+  const rBefore = FF.leagueRanks(teams3, V3, FLEX, 1);
+  assert.strictEqual(rBefore.WR, 3, "weak WR (8ppg) ranks last of 3 teams: " + JSON.stringify(rBefore));
+  // team 1 trades its weak WR for team 2's elite WR
+  const after3 = teams3.map((t) => (t.rosterId === 1 ? { ...t, players: t.players.filter((id) => id !== "w1").concat("w2") }
+    : t.rosterId === 2 ? { ...t, players: t.players.filter((id) => id !== "w2").concat("w1") } : t));
+  const rAfter = FF.leagueRanks(after3, V3, FLEX, 1);
+  assert.strictEqual(rAfter.WR, 1, "WR rank improves 3 -> 1 after receiving the better WR");
+  assert.strictEqual(rAfter.RB, rBefore.RB, "an unrelated group (RB) is unaffected by a WR-for-WR trade");
+}
+
 // ranks + tiers
 const rv = (pos, value, name) => ({ pos, value, ppg: value, avail: 1, exp_games: 10, name, team: "AAA" });
 const RV = {

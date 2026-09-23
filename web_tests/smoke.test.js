@@ -173,11 +173,11 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
   click(w, [...d.querySelectorAll("#pos-filter button")].find((b) => b.textContent === "DEF"));
   assert.strictEqual(d.querySelectorAll("#values-table tbody tr").length, 32);
   click(w, [...d.querySelectorAll("#pos-filter button")].find((b) => b.textContent === "TE"));
-  const tePos = [...d.querySelectorAll("#values-table tbody tr")].map((r) => r.children[3].textContent); // checkbox, #, name, then Pos column (rank badge, e.g. "TE5")
+  const tePos = [...d.querySelectorAll("#values-table tbody tr")].map((r) => r.children[2].textContent); // #, name, then Pos column (rank badge, e.g. "TE5")
   assert.ok(tePos.length > 10 && tePos.every((p) => p.startsWith("TE")));
 
   // rank/tier badges and the player-card modal
-  const posBadge = d.querySelector("#values-table tbody tr td:nth-child(4) .tag");
+  const posBadge = d.querySelector("#values-table tbody tr td:nth-child(3) .tag");
   assert.match(posBadge.textContent, /^TE\d+$/);
   const nameBtn = d.querySelector("#values-table tbody tr button.link");
   click(w, nameBtn);
@@ -209,20 +209,14 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
   click(w, d.querySelector("#player-modal-close"));
   assert.ok(modal.classList.contains("hidden"), "player card closes");
 
-  // compare mode: pick two players, open the comparison view
-  click(w, d.querySelectorAll("#values-table tbody input.cmp-check")[0]); // renderValues() rebuilds the table on each toggle, so re-query below
-  click(w, d.querySelectorAll("#values-table tbody input.cmp-check")[1]);
-  assert.match(d.querySelector("#tab-values .card").textContent, /2 seleccionados/);
-  click(w, d.querySelector("#compare-bar button.primary"));
-  assert.ok(!modal.classList.contains("hidden"), "compare view opens in the player modal");
-  assert.match(modal.textContent, /Comparativo/);
-  assert.strictEqual(d.querySelectorAll("#player-modal .compare-table th").length, 3, "one header cell per player plus the blank label column");
-  await tick(150); // openCompareView() lazily fetches player_weeks.json for the week-to-week section
-  assert.match(modal.textContent, /Semana a semana \(temporada actual\)/);
-  assert.match(d.querySelector("#compare-weeks").textContent, /WK|No hay historial/);
-  click(w, d.querySelector("#player-modal-close"));
-
   assert.deepStrictEqual(errors, [], "no script errors: " + errors.join("; "));
+
+  // Season stats tab: team + position selectors, table renders (or the empty-state note) without throwing
+  click(w, d.querySelector('.tabs button[data-tab="usage"]'));
+  await tick(60);
+  assert.ok(!d.querySelector("#tab-usage").classList.contains("hidden"));
+  assert.match(d.querySelector("#usage-note").textContent, /Routes|Sin datos/);
+  assert.deepStrictEqual(errors, [], "usage tab did not throw: " + errors.join("; "));
 
   // ---- Sleeper unreachable (e.g. CORS): clear message, page still usable
   ({ w, d, errors } = await open("offline"));

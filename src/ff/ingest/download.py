@@ -57,6 +57,8 @@ DATASETS: dict[str, Dataset] = {
         Dataset("team_stats", nfl.load_team_stats, default_start=2022),  # defense stats for the DEF projection
         Dataset("rosters_weekly", nfl.load_rosters_weekly),  # IR/PUP status by week: catches injuries the report misses
         Dataset("ff_opportunity", nfl.load_ff_opportunity),
+        Dataset("ngs_receiving", lambda seasons: nfl.load_nextgen_stats(seasons=seasons, stat_type="receiving"), default_start=2022),
+        Dataset("ftn_charting", nfl.load_ftn_charting, default_start=2022),  # target-quality charting for the season-stats tab
         Dataset("players", nfl.load_players, seasonal=False),
         Dataset("ff_playerids", nfl.load_ff_playerids, seasonal=False),
         Dataset("teams", nfl.load_teams, seasonal=False),

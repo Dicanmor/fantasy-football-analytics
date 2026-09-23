@@ -39,6 +39,7 @@
       <button role="tab" data-tab="trade">Trade calculator</button>
       <button role="tab" data-tab="finder">Trade finder</button>
       <button role="tab" data-tab="values">Player values</button>
+      <button role="tab" data-tab="usage">Season stats</button>
     </nav>
 
     <section id="tab-power" class="tab"></section>
@@ -106,6 +107,19 @@
         </div>
         <div class="table-wrap"><table id="values-table"></table></div>
         <p class="muted small" id="matchup-note"></p>
+      </div>
+    </section>
+
+    <section id="tab-usage" class="tab hidden">
+      <div class="card">
+        <h2>Season stats</h2>
+        <p class="muted small">How touches and targets are actually split on a team, this season. Pick a team and a position.</p>
+        <div class="row">
+          <label>Team <select id="usage-team"></select></label>
+          <div class="pills" id="usage-pos"></div>
+        </div>
+        <div class="table-wrap"><table id="usage-table"></table></div>
+        <p class="muted small" id="usage-note"></p>
       </div>
     </section>
   </main>

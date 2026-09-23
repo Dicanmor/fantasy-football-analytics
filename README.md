@@ -16,6 +16,7 @@ The goal is a fast, easy-to-use website that answers the questions I actually as
 | **Team power rankings** | Rank every team by lineup (flex, K, DEF, IR aware) and depth | ✅ v2 |
 | **Trade calculator** | Value exchanged **and** the effect on both lineups, color-coded, chained trade simulation, a player card with a weekly game log | ✅ v2.2 |
 | **Trade finder** | Trades that fix the weakest spots of your lineup without gutting the other team | ✅ New |
+| **Season stats** | Team + position usage shares (snap/rush/target share, target quality); no Routes/TPRR (data unavailable in-season) | ✅ New |
 | **Website** | Static site on GitHub Pages, refreshed weekly by GitHub Actions; reads your real Sleeper lineup | ✅ v2 |
 
 ## Data
@@ -25,9 +26,10 @@ All raw data comes from **nflverse** through the [`nflreadpy`](https://github.co
 
 | Dataset | Used for |
 |---|---|
-| `pbp`, `player_stats`, `schedules` | Matchup guide (what defenses allow) |
-| `injuries`, `rosters_weekly`, `snap_counts`, `players` | Injury history, IR stints, age, return to normal workload |
+| `pbp`, `player_stats`, `schedules` | Matchup guide (what defenses allow), season usage tab (target quality) |
+| `injuries`, `rosters_weekly`, `snap_counts`, `players` | Injury history, IR stints, age, return to normal workload, season usage snap share |
 | `ff_opportunity`, `ff_playerids` | Expected fantasy points, player value, ID mapping across sources |
+| `ngs_receiving`, `ftn_charting` | Season usage tab: ADOT, air yards share, catchable target share |
 
 Design choices worth knowing:
 
@@ -196,15 +198,34 @@ Try it: `python -m ff.models.power rosters.json`.
   same columns. The weekly data is a separate, lazily-fetched file (`site/data/player_weeks.json`, only loaded the
   first time you open that tab) so it does not slow down the initial page load. The **PROJ** column there is your
   season-long projection repeated every future week, not a week-specific number — see Known limits.
-- **Compare players:** tick up to 5 players in the Player values table (checkbox column) and click "Comparar →" for
-  a side-by-side table (rank, tier, proj PPG, value, matchup, role, status) plus a **week-to-week** table below it
-  (actual FPTS per week for each selected player, future weeks in parentheses as their season projection) so you can
-  see who has actually been hotter lately, not just the season average.
+
+## Season stats
+
+Its own tab: pick a team, pick a position, see how touches and targets are actually split this season
+(`ff/models/season_usage.py`, exported to `site/data/team_usage.json`). RB/FB: games, snap share, rush attempt
+share, target share (all as % of the *team's* season total). WR/TE: games, snap share, target share, plus target
+*quality* — catchable target share, ADOT, air yards share, end-zone target share, and 3rd/4th-down target share
+(these four as % of the *player's own* targets, i.e. what kind of looks he gets, not how many).
+
+**Routes run and targets-per-route-run (TPRR) are deliberately left out.** The only public source for "who ran a
+route on this play" is nflverse's play-participation data, and it lags a full season — as of writing it only
+covers through the 2025 season, not the in-progress one. There is no way to compute a real current-season route
+count from that, and approximating it from offensive snaps would mix route-runners with players who stayed in to
+block, which is exactly the kind of made-up number this project tries not to ship. These will get added once that
+data actually exists for the current season, not before.
+
+Everything else here does update during the season: rush/target share from `player_stats`, ADOT and air yards
+share from NextGen Stats receiving, and catchable/end-zone/3rd-4th-down target share from a join between
+play-by-play and FTN's charting data (`is_catchable_ball`), all refreshed by the same daily pipeline as everything
+else. Validated against a third-party site's numbers for two real players (a Packers WR pair) as a sanity check
+before shipping — catchable/EZ/3rd-4th-down shares landed in the same range.
+
 
 ## Website
 
 Static site in `site/` (plain HTML/CSS/JS, no build step). Tabs: **Power rankings** (click a team for its lineup with slots, bench, IR, taxi and
-matchup badges), **Trade calculator**, **Trade finder**, **Player values** (sortable, with matchup, role and an adjustment column).
+matchup badges), **Trade calculator**, **Trade finder**, **Player values** (sortable, with matchup, role and an adjustment column), **Season stats**
+(team + position usage shares).
 
 Matchup labels: score 0-100 = where the opponent ranks among the 32 defenses in fantasy points allowed to that position (100 = easiest).
 Favorable >= 67, Tough <= 33, Medium in between (`MATCHUP_FAVORABLE` / `MATCHUP_TOUGH` in `ff/models/value.py`). Backtests showed only a weak link
@@ -296,6 +317,7 @@ src/ff/
   models/power.py      # lineup-aware team power rankings
   models/trade.py      # trade evaluation: value + power delta for both teams
   models/weeklog.py    # per-player weekly game log for the player card's "Semana a semana" tab
+  models/season_usage.py # season usage shares (snap/rush/target share, target quality) for the Season stats tab
 experiments/           # backtests behind the model defaults (projection variants, injury history)
 site/                  # the website (index.html, js/core.js, js/app.js, data/)
 web_tests/             # Node tests for the site (logic + jsdom smoke test)

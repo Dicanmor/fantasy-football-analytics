@@ -42,8 +42,8 @@
     trade: { meId: null, partnerId: null, give: [], get: [] },
     sim: null, // trade-chain simulation: { rosters, log, baseline } — see startSim()/applySimTrade()
     finder: { focus: [], results: null },
-    compare: new Set(), // sleeper ids picked in the Player values tab for side-by-side comparison
     weeks: null, weeksPromise: null, // lazy-loaded site/data/player_weeks.json (see ensureWeeklyData)
+    usage: { data: null, promise: null, team: null, pos: null }, // lazy-loaded site/data/team_usage.json
     sort: { key: "value", dir: -1 }, pos: "ALL", q: "",
   };
   const teamById = (id) => state.teams.find((t) => String(t.rosterId) === String(id));
@@ -582,67 +582,9 @@
     showTab("trade");
   }
 
-  function toggleCompare(id) {
-    if (state.compare.has(id)) state.compare.delete(id);
-    else if (state.compare.size < 5) state.compare.add(id);
-    renderValues();
-  }
-  function renderCompareBar() {
-    const old = $("#compare-bar");
-    if (old) old.remove();
-    if (state.compare.size < 2) return;
-    const bar = el("div", { id: "compare-bar", class: "compare-bar" },
-      el("span", { class: "muted small", text: `${state.compare.size} seleccionados` }),
-      el("button", { class: "primary", text: "Comparar →", onclick: openCompareView }),
-      el("button", { text: "Limpiar", onclick: () => { state.compare.clear(); renderValues(); } }));
-    $("#tab-values .card").appendChild(bar);
-  }
-  async function openCompareView() {
-    const ids = [...state.compare];
-    const players = ids.map((id) => ({ id, ...state.values[id] }));
-    const modal = $("#player-modal"), body = clear($("#player-modal-body"));
-    const rowDef = [
-      ["Equipo", (p) => p.team || ""],
-      ["Rank", (p) => `#${state.ranks[p.id].overall} ovr / ${FF.posLabel(p.pos, state.ranks[p.id].pos)}`],
-      ["Tier", (p) => state.tiers[p.id] || "–"],
-      ["Proj PPG", (p) => fmt(p.ppg)],
-      ["Exp. games", (p) => fmt(p.exp_games)],
-      ["Value", (p) => fmt(p.value, 0)],
-      ["Matchup", (p) => (p.opp ? `vs ${p.opp} (${p.mu})` : "–")],
-      ["Role", (p) => (p.share === null || p.share === undefined ? "–" : pct(p.share))],
-      ["Status", (p) => p.status || "–"],
-    ];
-    body.append(
-      el("div", { class: "pc-head" }, el("h3", { text: "Comparativo" })),
-      el("div", { class: "table-wrap" }, el("table", { class: "compare-table" },
-        el("thead", {}, el("tr", {}, el("th", {}), ...players.map((p) => el("th", {}, nameLink(p.id))))),
-        el("tbody", {}, rowDef.map(([label, fn]) => el("tr", {},
-          el("td", { text: label }), ...players.map((p) => el("td", { text: fn(p) }))))))),
-      el("div", { class: "section-label", text: "Semana a semana (temporada actual)" }),
-      el("div", { id: "compare-weeks" }, el("p", { class: "muted small", text: "Cargando…" })));
-    modal.classList.remove("hidden");
-    const weeks = await ensureWeeklyData();
-    const byPlayer = players.map((p) => ({ p, rows: weeks[p.id] || [] }));
-    const allWeeks = [...new Set(byPlayer.flatMap((x) => x.rows.map((g) => g.wk)))].sort((a, b) => a - b);
-    const slot = $("#compare-weeks");
-    if (!allWeeks.length) { clear(slot).append(el("p", { class: "muted small", text: "No hay historial semanal para estos jugadores todavía." })); return; }
-    const cellFor = (x, wk) => {
-      const g = x.rows.find((r) => r.wk === wk);
-      if (!g) return "–";
-      if (g.fpts !== null && g.fpts !== undefined) return g.fpts.toFixed(1);
-      return g.proj !== null && g.proj !== undefined ? `(${g.proj.toFixed(1)})` : "–";
-    };
-    clear(slot).append(
-      el("div", { class: "table-wrap" }, el("table", { class: "compare-table" },
-        el("thead", {}, el("tr", {}, el("th", { text: "WK" }), ...byPlayer.map((x) => el("th", {}, nameLink(x.p.id))))),
-        el("tbody", {}, allWeeks.map((wk) => el("tr", {},
-          el("td", { text: wk }), ...byPlayer.map((x) => el("td", { class: "num", text: cellFor(x, wk) }))))))),
-      el("p", { class: "muted small", text: "Números entre paréntesis son proyección de temporada (semana todavía no jugada), no un resultado real." }));
-  }
-
   // ------------------------------------------------------------------ player values table
   const COLUMNS = [
-    ["cmp", "", false], ["rank", "#", true], ["name", "Player", false], ["pos_rank", "Pos", true], ["tier", "Tier", false], ["team", "Team", false], ["age", "Age", true],
+    ["rank", "#", true], ["name", "Player", false], ["pos_rank", "Pos", true], ["tier", "Tier", false], ["team", "Team", false], ["age", "Age", true],
     ["ppg", "Proj PPG", true], ["exp_games", "Exp games", true], ["value", "Value", true],
     ["mu", "Matchup", true], ["share", "Role", true], ["adj", "Adj", true], ["status", "Status", false],
   ];
@@ -672,8 +614,6 @@
       el("th", { class: "sortable" + (num ? " num" : ""), onclick: () => { if (!k || k === "cmp") return; state.sort = { key: k, dir: state.sort.key === k ? -state.sort.dir : (num ? -1 : 1) }; renderValues(); },
         text: lab + (state.sort.key === k ? (state.sort.dir > 0 ? " ▲" : " ▼") : "") })))));
     table.append(el("tbody", {}, rows.slice(0, 300).map((r) => el("tr", {},
-      el("td", {}, el("input", { class: "cmp-check", type: "checkbox", checked: state.compare.has(r.id) || null,
-        disabled: !state.compare.has(r.id) && state.compare.size >= 5 || null, onchange: () => toggleCompare(r.id) })),
       el("td", { class: "num", text: r.rank }), el("td", {}, nameLink(r.id)),
       el("td", { class: "num" }, el("span", { class: "tag rk", text: FF.posLabel(r.pos, r.pos_rank) })),
       el("td", {}, r.tier ? el("span", { class: "tag tier tier-" + r.tier, title: TIER_TITLE, text: r.tier }) : null),
@@ -685,11 +625,10 @@
       el("td", { class: "num" }, el("input", { class: "adj", type: "number", step: "0.5", value: r.adj === undefined ? "" : String(r.adj), placeholder: "0",
         onchange: (e) => setAdj(r.id, parseFloat(e.target.value)) })),
       el("td", {}, statusTag(r))))));
-    renderCompareBar();
     $("#matchup-note").textContent =
       `Matchup: how many fantasy points the ${DATA.as_of.season} week ${DATA.as_of.week} opponent allows to that position vs. the other defenses (100 = easiest, ` +
       `Favorable ≥ ${MODEL.matchup.favorable}, Tough ≤ ${MODEL.matchup.tough}). In backtests this was a weak predictor: use it as context. ` +
-      `Role: share of team rushes + targets over the last 4 games (↔ = shares touches with a teammate; hover for detail). Marca hasta 5 jugadores para comparar.`;
+      `Role: share of team rushes + targets over the last 4 games (↔ = shares touches with a teammate; hover for detail).`;
   }
 
   // ------------------------------------------------------------------ team adjustments
@@ -707,6 +646,59 @@
   function showTab(name) {
     document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x.dataset.tab === name));
     document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("hidden", t.id !== "tab-" + name));
+  }
+
+  // ------------------------------------------------------------------ season stats (usage) tab
+  const USAGE_COLUMNS = {
+    RB: [["gms", "GMS", (p) => p.gms], ["snap", "Snaps", (p) => pct(p.snap)], ["rush_att", "Rush ATT", (p) => pct(p.rush_att)], ["targets", "Targets", (p) => pct(p.targets)]],
+    FB: [["gms", "GMS", (p) => p.gms], ["snap", "Snaps", (p) => pct(p.snap)], ["rush_att", "Rush ATT", (p) => pct(p.rush_att)], ["targets", "Targets", (p) => pct(p.targets)]],
+    WR: [["gms", "GMS", (p) => p.gms], ["snap", "Snaps", (p) => pct(p.snap)], ["targets", "Targets", (p) => pct(p.targets)],
+      ["catchable", "Catchable TGTS", (p) => pct(p.catchable)], ["adot", "ADOT", (p) => fmt(p.adot)], ["air_yards", "Air Yards", (p) => pct(p.air_yards)],
+      ["ez", "EZ TGTS", (p) => pct(p.ez)], ["d34", "3/4 Down TGTS", (p) => pct(p.d34)]],
+    TE: [["gms", "GMS", (p) => p.gms], ["snap", "Snaps", (p) => pct(p.snap)], ["targets", "Targets", (p) => pct(p.targets)],
+      ["catchable", "Catchable TGTS", (p) => pct(p.catchable)], ["adot", "ADOT", (p) => fmt(p.adot)], ["air_yards", "Air Yards", (p) => pct(p.air_yards)],
+      ["ez", "EZ TGTS", (p) => pct(p.ez)], ["d34", "3/4 Down TGTS", (p) => pct(p.d34)]],
+  };
+  async function ensureUsageData() {
+    if (state.usage.data) return state.usage.data;
+    if (!state.usage.promise) {
+      state.usage.promise = fetch("data/team_usage.json")
+        .then((r) => (r.ok ? r.json() : {}))
+        .then((d) => { state.usage.data = d; return d; })
+        .catch(() => { state.usage.data = {}; return {}; });
+    }
+    return state.usage.promise;
+  }
+  async function renderUsageSetup() {
+    const data = await ensureUsageData();
+    const teams = Object.keys(data).sort();
+    const sel = $("#usage-team");
+    if (!sel.options.length) {
+      teams.forEach((t) => sel.append(el("option", { value: t, text: t })));
+      if (teams.length) { sel.value = teams[0]; state.usage.team = teams[0]; }
+    }
+    renderUsageTable();
+  }
+  function renderUsagePills() {
+    const team = state.usage.data && state.usage.data[state.usage.team];
+    const positions = team ? Object.keys(USAGE_COLUMNS).filter((p) => team[p] && team[p].length) : [];
+    if (!positions.includes(state.usage.pos)) state.usage.pos = positions[0] || null;
+    const box = clear($("#usage-pos"));
+    positions.forEach((p) => box.append(el("button", { class: state.usage.pos === p ? "active" : "", text: p,
+      onclick: () => { state.usage.pos = p; renderUsagePills(); renderUsageTable(); } })));
+  }
+  function renderUsageTable() {
+    renderUsagePills();
+    const table = clear($("#usage-table"));
+    const data = state.usage.data;
+    const rows = (data && state.usage.team && state.usage.pos && data[state.usage.team][state.usage.pos]) || [];
+    const cols = USAGE_COLUMNS[state.usage.pos] || USAGE_COLUMNS.RB;
+    table.append(el("thead", {}, el("tr", {}, el("th", { text: "Player" }), ...cols.map(([, label]) => el("th", { class: "num", text: label })))));
+    table.append(el("tbody", {}, rows.map((p) => el("tr", {},
+      el("td", {}, nameLink(p.id, p.name)), ...cols.map(([key, , fn]) => el("td", { class: "num", text: p[key] === null || p[key] === undefined ? "–" : fn(p) }))))));
+    $("#usage-note").textContent = rows.length
+      ? "Porcentajes son parte del total de SU equipo esta temporada (snaps ofensivos, acarreos, objetivos), salvo Catchable/EZ/3-4 Down TGTS que son % de los propios objetivos del jugador. No incluye Routes ni TPRR: el dato público de participación de nflverse no se actualiza en temporada, solo hasta la temporada pasada — no lo voy a inventar a partir de snaps."
+      : "Sin datos para este equipo/posición todavía.";
   }
 
   function renderAll() {
@@ -752,6 +744,7 @@
     $("#values-search").addEventListener("input", (e) => { state.q = e.target.value; renderValues(); });
     $("#finder-team").addEventListener("change", () => { $("#finder-results").textContent = ""; renderFinderSetup(); });
     $("#finder-run").addEventListener("click", runFinder);
+    $("#usage-team").addEventListener("change", (e) => { state.usage.team = e.target.value; renderUsageTable(); });
     $("#adj-add").addEventListener("click", () => {
       const t = $("#adj-team").value, v = parseFloat($("#adj-pct").value);
       if (!t || Number.isNaN(v)) return;
@@ -761,6 +754,7 @@
     $("#adj-reset").addEventListener("click", () => { state.adj = { players: {}, teams: {} }; saveAdj(); recompute(); renderAll(); });
 
     renderAll();
+    renderUsageSetup();
   }
 
   init();

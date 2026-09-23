@@ -5,7 +5,7 @@ on:
     - cron: "0 11 * * *"      # every day 11:00 UTC (5:00 in Guadalajara); injuries and stats change daily in season
   workflow_dispatch:           # run it by hand from the Actions tab
   push:
-    branches: [master]
+    branches: [main]
     paths: ["site/**", "src/**", ".github/workflows/deploy.yml"]
 
 permissions:
@@ -36,7 +36,7 @@ jobs:
           key: raw-${{ github.run_id }}
           restore-keys: raw-
       # The value model does not need play-by-play, so skip the big dataset.
-      - run: ff-download --datasets player_stats snap_counts rosters_weekly injuries schedules players ff_opportunity team_stats
+      - run: ff-download --datasets player_stats snap_counts rosters_weekly injuries schedules players ff_opportunity team_stats pbp ngs_receiving ftn_charting
       - run: python -m ff.models.value
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

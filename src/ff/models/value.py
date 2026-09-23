@@ -571,6 +571,16 @@ def main(argv: list[str] | None = None) -> None:
     }
     export_weekly_log(active, tables["log"], load_raw("schedules"), load_raw("player_stats", seasons=[as_of[0]]), as_of, proj_by_sid, SITE_JSON.parent)
 
+    from ff.models.season_usage import USAGE_POSITIONS, build_usage_table, export_usage
+
+    usage_roster = current_roster(load_raw("rosters_weekly"), as_of, positions=USAGE_POSITIONS)
+    usage_table = build_usage_table(
+        usage_roster, as_of, load_raw("player_stats", seasons=[as_of[0]]), load_raw("snap_counts", seasons=[as_of[0]]),
+        load_raw("players"), load_raw("ngs_receiving", seasons=[as_of[0]]), load_raw("pbp", seasons=[as_of[0]]),
+        load_raw("ftn_charting", seasons=[as_of[0]]),
+    )
+    export_usage(usage_table, SITE_JSON.parent)
+
     print(f"As of {as_of[0]} week {as_of[1]} | default league: {league.teams} teams, slots {list(league.slots)}")
     print("replacement PPG: " + ", ".join(f"{k} {v:.1f}" for k, v in replacement.items()))
     print(players.select("overall_rank", "full_name", "position", "team", "proj_ppg", "exp_games", "value", "opp", "mu").head(12))

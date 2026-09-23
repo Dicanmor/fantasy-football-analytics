@@ -569,7 +569,7 @@ def main(argv: list[str] | None = None) -> None:
     proj_by_sid = {
         r["sleeper_id"]: r["final_ppg"] for r in players.iter_rows(named=True) if r["sleeper_id"]
     }
-    export_weekly_log(active, tables["log"], as_of, proj_by_sid, SITE_JSON.parent)
+    export_weekly_log(active, tables["log"], load_raw("schedules"), load_raw("player_stats", seasons=[as_of[0]]), as_of, proj_by_sid, SITE_JSON.parent)
 
     print(f"As of {as_of[0]} week {as_of[1]} | default league: {league.teams} teams, slots {list(league.slots)}")
     print("replacement PPG: " + ", ".join(f"{k} {v:.1f}" for k, v in replacement.items()))

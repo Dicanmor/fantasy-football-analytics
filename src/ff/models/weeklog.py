@@ -14,7 +14,6 @@ import json
 
 import polars as pl
 
-from ff.data import load_raw
 from ff.models.value_common import WEEKS
 
 
@@ -28,15 +27,10 @@ def _opponent_by_team_week(schedules: pl.DataFrame, season: int) -> pl.DataFrame
     )
 
 
-def build_weekly_log(active: pl.DataFrame, log: pl.DataFrame, as_of: tuple[int, int]) -> dict[str, list[dict]]:
-    """``active``: current_roster() output. ``log``: build_all()["log"] (gsis_id, season, week, offense_pct, ppr).
-    Returns {sleeper_id: [{wk, opp, fpts, snap, ra, ry, rt, tg, rc, cy, ct, fm, fl, kr, kyd, pr, spt}, ...]}."""
-    season, week = as_of
-    opp = _opponent_by_team_week(load_raw("schedules"), season)
+def _box_score(player_stats: pl.DataFrame, season: int) -> pl.DataFrame:
     f = lambda c: pl.col(c).fill_null(0)  # noqa: E731
-    box = (
-        load_raw("player_stats", seasons=[season])
-        .filter((pl.col("season") == season) & (pl.col("season_type") == "REG"))
+    return (
+        player_stats.filter((pl.col("season") == season) & (pl.col("season_type") == "REG"))
         .select(
             gsis_id="player_id", week="week",
             rush_att="carries", rush_yd="rushing_yards", rush_td="rushing_tds",
@@ -47,6 +41,18 @@ def build_weekly_log(active: pl.DataFrame, log: pl.DataFrame, as_of: tuple[int, 
             sp_td=f("pt_return_tds"),
         )
     )
+
+
+def build_weekly_log(
+    active: pl.DataFrame, log: pl.DataFrame, schedules: pl.DataFrame, player_stats: pl.DataFrame, as_of: tuple[int, int]
+) -> dict[str, list[dict]]:
+    """``active``: current_roster() output. ``log``: build_all()["log"] (gsis_id, season, week, offense_pct, ppr).
+    ``schedules``/``player_stats``: load_raw() output, passed in (not loaded here) so this stays a pure,
+    easily-tested function. Returns {sleeper_id: [{wk, opp, fpts, snap, ra, ry, rt, tg, rc, cy, ct, fm, fl, kr,
+    kyd, pr, spt}, ...]}."""
+    season, week = as_of
+    opp = _opponent_by_team_week(schedules, season)
+    box = _box_score(player_stats, season)
     snaps = log.filter(pl.col("season") == season).select("gsis_id", "week", "offense_pct", "ppr")
 
     weeks = pl.DataFrame({"week": list(range(1, WEEKS + 1))})
@@ -80,8 +86,11 @@ def build_weekly_log(active: pl.DataFrame, log: pl.DataFrame, as_of: tuple[int, 
     return out
 
 
-def export_weekly_log(active: pl.DataFrame, log: pl.DataFrame, as_of: tuple[int, int], proj_by_sleeper_id: dict[str, float], directory) -> None:
-    weeklog = build_weekly_log(active, log, as_of)
+def export_weekly_log(
+    active: pl.DataFrame, log: pl.DataFrame, schedules: pl.DataFrame, player_stats: pl.DataFrame,
+    as_of: tuple[int, int], proj_by_sleeper_id: dict[str, float], directory,
+) -> None:
+    weeklog = build_weekly_log(active, log, schedules, player_stats, as_of)
     for sid, games in weeklog.items():
         p = proj_by_sleeper_id.get(sid)
         for g in games:

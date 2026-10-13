@@ -27,7 +27,11 @@ def _frames():
     pbp = pl.DataFrame(
         {
             "game_id": ["g1"] * 10, "play_id": list(range(10)), "season": [2026] * 10, "week": [1] * 10,
-            "season_type": ["REG"] * 10, "pass_attempt": [1] * 10, "down": [1, 2, 3, 3, 1, 2, 3, 4, 1, 2],
+            "season_type": ["REG"] * 10, "pass_attempt": [1] * 10,
+            # Real nflverse pbp has `down` as Float64 (null on non-down plays like kickoffs/PATs), not an int -
+            # use floats here too so a regression like the Polars `is_in([3, 4])` Int64-vs-Float64 dtype
+            # mismatch bug (fixed in season_usage.py) would actually be caught by this test.
+            "down": [1.0, 2.0, 3.0, 3.0, 1.0, 2.0, 3.0, 4.0, 1.0, 2.0],
             "air_yards": [5, 5, 20, 5, 5, 5, 5, 5, 5, 5], "yardline_100": [15, 15, 15, 15, 15, 15, 15, 15, 15, 15],
             "receiver_player_id": ["p1"] * 5 + ["p2"] * 5,
         }

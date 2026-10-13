@@ -84,7 +84,7 @@ def _target_quality(pbp: pl.DataFrame, ftn_charting: pl.DataFrame, season: int, 
         pl.len().alias("_targets"),
         pl.col("is_catchable_ball").sum().alias("_catchable"),
         (pl.col("air_yards") >= pl.col("yardline_100")).sum().alias("_ez"),
-        pl.col("down").is_in([3, 4]).sum().alias("_d34"),
+        pl.col("down").is_in([3.0, 4.0]).sum().alias("_d34"),
     ).with_columns(
         catchable_pct=pl.col("_catchable") / pl.col("_targets"),
         ez_tgt_pct=pl.col("_ez") / pl.col("_targets"),

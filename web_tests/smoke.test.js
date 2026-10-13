@@ -98,7 +98,7 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
   const result = d.querySelector("#trade-result").textContent;
   assert.match(result, /Effect on each lineup/);
   assert.match(result, /Context/);
-  assert.match(result, /Ranking de tu equipo en la liga/);
+  assert.match(result, /Your team.s ranking in the league/);
   assert.ok(d.querySelector(".rank-table"), "League/position rank table renders");
   assert.ok(d.querySelectorAll(".rank-table tbody tr").length >= 6, "one row per group plus League");
   assert.match(result, /availability/);
@@ -123,13 +123,13 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
 
   // trade-chain simulation: apply two trades with two different partners and see the running total
   click(w, d.querySelector("#give-roster button"));
-  assert.match(d.querySelector("#trade-result").textContent, /Iniciar simulación/);
-  click(w, [...d.querySelectorAll("#trade-result button")].find((b) => b.textContent === "Iniciar simulación"));
+  assert.match(d.querySelector("#trade-result").textContent, /Start simulation/);
+  click(w, [...d.querySelectorAll("#trade-result button")].find((b) => b.textContent === "Start simulation"));
   assert.ok(d.querySelector("#me-select").disabled, "the 'you' side locks while a simulation is running");
-  const applyBtn = () => [...d.querySelectorAll("#trade-result button")].find((b) => b.textContent === "Aplicar este trade a la simulación");
+  const applyBtn = () => [...d.querySelectorAll("#trade-result button")].find((b) => b.textContent === "Apply this trade to the simulation");
   assert.ok(applyBtn(), "an apply button appears once give/get are picked");
   click(w, applyBtn());
-  assert.match(d.querySelector("#trade-result").textContent, /1 trade\(s\) aplicado\(s\)/);
+  assert.match(d.querySelector("#trade-result").textContent, /1 trade\(s\) applied/);
   assert.strictEqual(d.querySelectorAll("#give-chips .chip").length, 0, "the trade slots clear after applying");
   // switch to a THIRD team and apply a second trade, chained on top of the first
   const partnerSel = d.querySelector("#partner-select");
@@ -139,9 +139,9 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
   click(w, d.querySelector("#get-roster button"));
   if (applyBtn()) {
     click(w, applyBtn());
-    assert.match(d.querySelector("#trade-result").textContent, /2 trade\(s\) aplicado\(s\)/);
+    assert.match(d.querySelector("#trade-result").textContent, /2 trade\(s\) applied/);
   }
-  click(w, [...d.querySelectorAll("#trade-result button")].find((b) => b.textContent === "Terminar simulación"));
+  click(w, [...d.querySelectorAll("#trade-result button")].find((b) => b.textContent === "End simulation"));
   assert.ok(!d.querySelector("#me-select").disabled, "'you' unlocks once the simulation ends");
   assert.deepStrictEqual(errors, [], "trade simulation did not throw: " + errors.join("; "));
 
@@ -186,18 +186,18 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
   assert.match(modal.textContent, /Proj PPG/);
   assert.match(modal.textContent, /Tier/);
 
-  // player card "Semana a semana" tab: lazy-fetches player_weeks.json and renders a table (or the empty-state message)
-  const weekTabBtn = [...d.querySelectorAll("#player-modal .pc-tab")].find((b) => b.textContent === "Semana a semana");
+  // player card "Week by week" tab: lazy-fetches player_weeks.json and renders a table (or the empty-state message)
+  const weekTabBtn = [...d.querySelectorAll("#player-modal .pc-tab")].find((b) => b.textContent === "Week by week");
   click(w, weekTabBtn);
   await tick(60);
   const pcBody = d.querySelector("#pc-body");
-  assert.ok(pcBody.querySelector(".weekly-table") || /No hay historial semanal/.test(pcBody.textContent), "weekly tab renders a table or the empty-state message");
+  assert.ok(pcBody.querySelector(".weekly-table") || /No weekly history/.test(pcBody.textContent), "weekly tab renders a table or the empty-state message");
   click(w, d.querySelector("#player-modal-close"));
 
   // QB weekly table shows passing stats (ATT/CMP/YD/TD/INT), not the RB/WR receiving columns
   click(w, [...d.querySelectorAll("#pos-filter button")].find((b) => b.textContent === "QB"));
   click(w, d.querySelector("#values-table tbody button.link"));
-  click(w, [...d.querySelectorAll("#player-modal .pc-tab")].find((b) => b.textContent === "Semana a semana"));
+  click(w, [...d.querySelectorAll("#player-modal .pc-tab")].find((b) => b.textContent === "Week by week"));
   await tick(60);
   const qbTable = d.querySelector("#pc-body .weekly-table");
   if (qbTable) {
@@ -215,7 +215,7 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
   click(w, d.querySelector('.tabs button[data-tab="usage"]'));
   await tick(60);
   assert.ok(!d.querySelector("#tab-usage").classList.contains("hidden"));
-  assert.match(d.querySelector("#usage-note").textContent, /Routes|Sin datos/);
+  assert.match(d.querySelector("#usage-note").textContent, /Routes|No data/);
   assert.deepStrictEqual(errors, [], "usage tab did not throw: " + errors.join("; "));
 
   // ---- Sleeper unreachable (e.g. CORS): clear message, page still usable

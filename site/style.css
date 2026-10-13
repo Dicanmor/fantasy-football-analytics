@@ -122,6 +122,7 @@ td .delta-chip { padding: 2px 8px; font-size: 12px; }
 .weekly-table th.grp { text-align: center; color: var(--muted); font-size: 10px; text-transform: uppercase; border-bottom: 1px solid var(--line); }
 .weekly-table tr.future td { color: var(--muted); }
 .weekly-table td.strong { font-weight: 700; }
+.weekly-table td.inj { text-decoration: underline dotted var(--bad); text-underline-offset: 3px; cursor: help; }
 #player-modal .modal-box { max-width: 92vw; overflow-x: auto; }
 
 

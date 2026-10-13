@@ -45,17 +45,47 @@ def _box_score(player_stats: pl.DataFrame, season: int) -> pl.DataFrame:
     )
 
 
+def _injury_reports(injuries: pl.DataFrame, season: int) -> pl.DataFrame:
+    """One row per (player, week) the injury report actually published something for, as a single short
+    label like "Out - Hamstring" or "Questionable - Ankle, Limited practice" — the real, official report
+    text, not a guess. A week with no row here means the player was not on the report (healthy enough to
+    not be listed, which is itself informative: it is when a long-term injury is really over)."""
+    return (
+        injuries.filter((pl.col("game_type") == "REG") & (pl.col("season") == season))
+        .with_columns(pl.col("week").cast(pl.Int32))
+        .with_columns(
+            injury_name=pl.coalesce("report_primary_injury", "practice_primary_injury"),
+            practice=pl.col("practice_status").str.extract(r"^(Full|Limited|Did Not)", 1),
+        )
+        .with_columns(
+            label=pl.when(pl.col("report_status").is_not_null() & pl.col("injury_name").is_not_null())
+            .then(pl.col("report_status") + " - " + pl.col("injury_name"))
+            .when(pl.col("report_status").is_not_null())
+            .then(pl.col("report_status"))
+            .when(pl.col("injury_name").is_not_null())
+            .then(pl.col("injury_name") + pl.when(pl.col("practice").is_not_null()).then(", " + pl.col("practice") + " practice").otherwise(pl.lit("")))
+            .otherwise(pl.lit(None, dtype=pl.String))
+        )
+        .filter(pl.col("label").is_not_null())
+        .select("gsis_id", "week", "label")
+        .unique(["gsis_id", "week"])
+    )
+
+
 def build_weekly_log(
-    active: pl.DataFrame, log: pl.DataFrame, schedules: pl.DataFrame, player_stats: pl.DataFrame, as_of: tuple[int, int]
+    active: pl.DataFrame, log: pl.DataFrame, schedules: pl.DataFrame, player_stats: pl.DataFrame, as_of: tuple[int, int],
+    injuries: pl.DataFrame | None = None,
 ) -> dict[str, list[dict]]:
     """``active``: current_roster() output. ``log``: build_all()["log"] (gsis_id, season, week, offense_pct, ppr).
-    ``schedules``/``player_stats``: load_raw() output, passed in (not loaded here) so this stays a pure,
-    easily-tested function. Returns {sleeper_id: [{wk, opp, fpts, snap, ra, ry, rt, tg, rc, cy, ct, fm, fl, kr,
-    kyd, pr, spt}, ...]}."""
+    ``schedules``/``player_stats``/``injuries``: load_raw() output, passed in (not loaded here) so this stays a
+    pure, easily-tested function. ``injuries`` is optional (old callers/tests keep working with no injury
+    column). Returns {sleeper_id: [{wk, opp, fpts, snap, ra, ry, rt, tg, rc, cy, ct, fm, fl, kr, kyd, pr, spt,
+    inj}, ...]}."""
     season, week = as_of
     opp = _opponent_by_team_week(schedules, season)
     box = _box_score(player_stats, season)
     snaps = log.filter(pl.col("season") == season).select("gsis_id", "week", "offense_pct", "ppr")
+    inj = _injury_reports(injuries, season) if injuries is not None else None
 
     weeks = pl.DataFrame({"week": list(range(1, WEEKS + 1))})
     out: dict[str, list[dict]] = {}
@@ -66,6 +96,8 @@ def build_weekly_log(
         s = snaps.filter(pl.col("gsis_id") == row["gsis_id"])
         b = box.filter(pl.col("gsis_id") == row["gsis_id"])
         merged = sched_rows.join(s, on="week", how="left").join(b, on="week", how="left", suffix="_b")
+        if inj is not None:
+            merged = merged.join(inj.filter(pl.col("gsis_id") == row["gsis_id"]).select("week", "label"), on="week", how="left")
         games = []
         for r in merged.iter_rows(named=True):
             played = r["week"] < week and r["ppr"] is not None
@@ -84,6 +116,7 @@ def build_weekly_log(
                     "fm": r["fum"] if played else None, "fl": r["fum_lost"] if played else None,
                     "kr": r["kr"] if played else None, "kyd": r["kyd"] if played else None,
                     "pr": r["pr"] if played else None, "spt": r["sp_td"] if played else None,
+                    "inj": r.get("label") if inj is not None else None,
                 }
             )
         if any(g["opp"] is not None for g in games):
@@ -93,9 +126,9 @@ def build_weekly_log(
 
 def export_weekly_log(
     active: pl.DataFrame, log: pl.DataFrame, schedules: pl.DataFrame, player_stats: pl.DataFrame,
-    as_of: tuple[int, int], proj_by_sleeper_id: dict[str, float], directory,
+    as_of: tuple[int, int], proj_by_sleeper_id: dict[str, float], directory, injuries: pl.DataFrame | None = None,
 ) -> None:
-    weeklog = build_weekly_log(active, log, schedules, player_stats, as_of)
+    weeklog = build_weekly_log(active, log, schedules, player_stats, as_of, injuries)
     for sid, games in weeklog.items():
         p = proj_by_sleeper_id.get(sid)
         for g in games:

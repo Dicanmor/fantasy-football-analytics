@@ -69,9 +69,39 @@ def test_low_snap_games_are_ignored():
 
 def test_expected_remaining_absence():
     eps = pl.DataFrame({"season": [2024] * 4, "games_missed": [1, 1, 2, 5], "ir_games": [0, 0, 0, 0],
-                        "starts_on_ir": [False] * 4})
+                        "starts_on_ir": [False] * 4, "injury": ["X"] * 4})
     # k=2: episodes with >=2 games are [2, 5] -> games still to miss = (2-2+1, 5-2+1) = (1, 4) -> 2.5
     assert expected_remaining_absence(eps, 2, 2026) == pytest.approx(2.5)
+
+
+def test_expected_remaining_absence_blends_toward_injury_specific_history():
+    """A hamstring that has already cost 2 games historically clears up fast (1 more game); an unrelated
+    pile of OTHER injuries lasting much longer should not drag a well-sampled hamstring estimate toward
+    them, but a THIN hamstring sample (below prior_episodes) should still lean mostly on the generic rate."""
+    hamstring = [("Hamstring", 2)] * 20  # 20 past hamstring episodes, every one exactly 2 games
+    other = [("Knee", 6)] * 20           # 20 unrelated, much longer knee episodes
+    eps = pl.DataFrame(
+        {
+            "season": [2024] * 40, "games_missed": [g for _, g in hamstring + other],
+            "ir_games": [0] * 40, "starts_on_ir": [False] * 40,
+            "injury": [i for i, _ in hamstring + other],
+        }
+    )
+    # well-sampled hamstring history (20 episodes >> prior_episodes=8) should pull the estimate well below
+    # the knee-polluted generic average (3.0), toward the hamstring-only rate (1.0): w = 20/(20+8) = 0.714
+    # -> 0.714*1.0 + 0.286*3.0 = 1.57.
+    out = expected_remaining_absence(eps, 2, 2026, injury="Hamstring")
+    generic = expected_remaining_absence(eps, 2, 2026, injury=None)
+    assert generic == pytest.approx(3.0)
+    assert out == pytest.approx(1.571, abs=0.01)
+    assert generic > out + 1  # the generic (knee-polluted) estimate is clearly higher
+
+    # a single past hamstring episode (way below prior_episodes) should barely move the estimate off generic
+    thin = eps.vstack(pl.DataFrame(
+        {"season": [2024], "games_missed": [2], "ir_games": [0], "starts_on_ir": [False], "injury": ["ACL"]}
+    ))
+    thin_out = expected_remaining_absence(thin, 2, 2026, injury="ACL")
+    assert thin_out == pytest.approx(generic, abs=0.5)  # 1 matching episode -> mostly the generic rate
 
 
 def test_manual_adjustments_file(tmp_path):

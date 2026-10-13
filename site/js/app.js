@@ -83,12 +83,27 @@
   }
   function statusTag(p) {
     if (!p.status) return null;
-    return el("span", { class: "tag" + (p.status === "IR" ? " ir" : ""), text: p.status });
+    let title;
+    if (p.injury) {
+      title = p.injury;
+      if (p.absence) title += ` · model expects ~${fmt(p.absence, 1)} more game(s) out, from injury-type history`;
+    }
+    return el("span", { class: "tag" + (p.status === "IR" ? " ir" : ""), text: p.status, title });
   }
   function roleText(p) {
     if (p.share === null || p.share === undefined) return null;
     let t = `Role: ${pct(p.share)} of team touches (last season ${pct(p.share_prev)})`;
     if (p.mate) t += ` · shares with ${p.mate} (${pct(p.mate_share)})`;
+    return t;
+  }
+  /* His CURRENT injury (not his history) and the model's expected remaining absence, based on how past
+   * players with that SAME injury type have recovered (see value.py's expected_remaining_absence) — the
+   * number that makes a hurt-but-talented player a buy-low target once it starts trending down. Null
+   * unless he's actually dealing with something right now. */
+  function injuryText(p) {
+    if (!p.injury) return null;
+    let t = `Current injury: ${p.injury}`;
+    if (p.absence) t += ` — model expects ~${fmt(p.absence, 1)} more game(s) out (based on how other players with this injury recovered)`;
     return t;
   }
   const label = (p) => `${p.name} · ${p.pos}${p.team ? " " + p.team : ""}`;
@@ -129,7 +144,8 @@
     const cells = (g) => {
       const p = played(g);
       const common = [
-        el("td", { text: g.wk }), el("td", { text: g.opp || "BYE" }),
+        el("td", { text: g.wk }),
+        el("td", { class: g.inj ? "inj" : "", title: g.inj || null }, g.opp || "BYE"),
         el("td", { class: "num", text: dash(g.proj) }), el("td", { class: "num strong", text: dash(g.fpts) }),
         el("td", { class: "num", text: g.snap === null || g.snap === undefined ? "–" : g.snap + "%" }),
       ];
@@ -165,6 +181,7 @@
         el("div", { class: "stat" }, el("span", { class: "muted small", text: "Exp. games" }), el("b", { text: fmt(p.exp_games) }), el("span", { class: "muted small", text: `${Math.round(p.avail * 100)}% availability` })),
         el("div", { class: "stat" }, el("span", { class: "muted small", text: "Value" }), el("b", { text: fmt(p.value, 0) + " pts" }), el("span", { class: "muted small", text: "over replacement" }))),
       roleText(p) ? el("p", { class: "ctx", text: roleText(p) }) : null,
+      injuryText(p) ? el("p", { class: "ctx", text: injuryText(p) }) : null,
       p.opp ? el("p", { class: "ctx", text: `This week: vs ${p.opp}, matchup score ${p.mu}/100 for ${p.pos}s (100 = easiest defense)` }) : null,
       el("p", { class: "muted small", text: "PPG is a recency-weighted average of his own games (current season weighted heaviest); it is not a week-by-week box score." }));
   }
@@ -174,8 +191,8 @@
     const modal = $("#player-modal");
     const body = clear($("#player-modal-body"));
     const tabs = el("div", { class: "pc-tabs" },
-      el("button", { class: "pc-tab" + (tab === "summary" ? " active" : ""), onclick: () => openPlayerCard(id, "summary"), text: "Resumen" }),
-      el("button", { class: "pc-tab" + (tab === "weeks" ? " active" : ""), onclick: () => openPlayerCard(id, "weeks"), text: "Semana a semana" }));
+      el("button", { class: "pc-tab" + (tab === "summary" ? " active" : ""), onclick: () => openPlayerCard(id, "summary"), text: "Summary" }),
+      el("button", { class: "pc-tab" + (tab === "weeks" ? " active" : ""), onclick: () => openPlayerCard(id, "weeks"), text: "Week by week" }));
     body.append(
       el("div", { class: "pc-head" }, el("h3", { text: p.name }), el("span", { class: "muted", text: `${p.pos}${p.team ? " · " + p.team : ""}` })),
       tabs, el("div", { id: "pc-body" }));
@@ -185,14 +202,14 @@
       clear(slot).append(summaryTab(id, p));
       return;
     }
-    clear(slot).append(el("p", { class: "muted small", text: "Cargando…" }));
+    clear(slot).append(el("p", { class: "muted small", text: "Loading…" }));
     const weeks = await ensureWeeklyData();
     const rows = weeks[id];
     clear(slot).append(
       rows
         ? weeklyTable(rows, p.pos)
-        : el("p", { class: "muted small", text: "No hay historial semanal para este jugador todavía." }),
-      el("p", { class: "muted small", text: "PROJ es tu proyección de temporada (la misma cada semana), no una proyección específica del rival de esa semana." }));
+        : el("p", { class: "muted small", text: "No weekly history for this player yet." }),
+      el("p", { class: "muted small", text: "PROJ is his season-long projection (the same every week), not a projection specific to that week's opponent." }));
   }
   function wirePlayerCard() {
     $("#player-modal").addEventListener("click", (e) => { if (e.target.id === "player-modal") $("#player-modal").classList.add("hidden"); });
@@ -208,7 +225,7 @@
       el("span", { class: "dc-label", text: labelText }), el("span", { class: "dc-val", text: `${arrow} ${signed(value)}` }));
   }
   function deltaBar(myDelta, theirDelta) {
-    return el("div", { class: "delta-row" }, deltaChip(myDelta, "Tú"), deltaChip(theirDelta, "Ellos"));
+    return el("div", { class: "delta-row" }, deltaChip(myDelta, "You"), deltaChip(theirDelta, "Them"));
   }
 
   // ------------------------------------------------------------------ status / header
@@ -349,16 +366,16 @@
   function simPanel() {
     if (!state.sim) {
       return el("div", { class: "sim-banner" },
-        "Simula varias trades seguidas: cada una que apliques se guarda y la siguiente parte de ahí, con cualquier equipo. ",
-        el("button", { class: "primary", text: "Iniciar simulación", onclick: startSim }));
+        "Simulate several trades in a row: each one you apply is saved, and the next one starts from there, with any team. ",
+        el("button", { class: "primary", text: "Start simulation", onclick: startSim }));
     }
     const me = activeRoster(state.sim.meId);
     const now = FF.teamPower(me.players, state.values, state.ctx, me.reserve, me.taxi).power;
     const cum = now - state.sim.baseline;
     return el("div", { class: "sim-banner" },
-      el("div", {}, el("b", { text: "Simulación activa" }), ` para ${teamById(state.sim.meId).name} — `,
-        deltaChip(cum, "Acumulado"), ` (${state.sim.log.length} trade(s) aplicado(s))`,
-        el("button", { text: "Terminar simulación", onclick: endSim })),
+      el("div", {}, el("b", { text: "Simulation active" }), ` para ${teamById(state.sim.meId).name} — `,
+        deltaChip(cum, "Total"), ` (${state.sim.log.length} trade(s) applied)`,
+        el("button", { text: "End simulation", onclick: endSim })),
       state.sim.log.length ? el("div", { class: "sim-log" }, state.sim.log.map((l, i) => el("div", { class: "row" },
         el("span", {}, `${i + 1}. con ${l.partner}: das ${l.give.map((id) => state.values[id] ? state.values[id].name : id).join("+")}, recibes ${l.get.map((id) => state.values[id] ? state.values[id].name : id).join("+")}`),
         deltaChip(l.delta, "")))) : null);
@@ -443,6 +460,7 @@
         el("div", {}, rankBadges(id)),
         el("div", { class: "ctx", text: `Projection ${fmt(p.ppg)} ppg × ${fmt(p.exp_games)} expected games (${Math.round(p.avail * 100)}% availability) = ${fmt(p.value, 0)} pts above replacement` }),
         roleText(p) ? el("div", { class: "ctx", text: roleText(p) }) : null,
+        injuryText(p) ? el("div", { class: "ctx", text: injuryText(p) }) : null,
         el("label", { class: "small" }, "Your adjustment (ppg) ",
           el("input", { class: "adj", type: "number", step: "0.5", value: adj === undefined ? "" : String(adj), placeholder: "0",
             onchange: (e) => setAdj(id, parseFloat(e.target.value)) })));
@@ -465,11 +483,11 @@
       return el("tr", {}, el("td", { text: GROUP_LABEL[k] || k }), el("td", { class: "num", text: before[k] }),
         el("td", { class: "num rt-arrow" }, "→"), el("td", { class: "num rt-cell " + cls, text: after[k] }));
     });
-    return el("div", {}, el("h3", { text: "Ranking de tu equipo en la liga" }),
+    return el("div", {}, el("h3", { text: "Your team's ranking in the league" }),
       el("div", { class: "table-wrap" }, el("table", { class: "rank-table" },
         el("thead", {}, el("tr", {}, el("th", { text: "" }), el("th", { class: "num", text: "Current" }), el("th", {}), el("th", { class: "num", text: "After Trade" }))),
         el("tbody", {}, rows))),
-      el("p", { class: "muted small", text: "1 = el mejor de la liga en ese grupo. Verde = mejora, rojo = empeora." }));
+      el("p", { class: "muted small", text: "1 = best in the league in that group. Green = improves, red = worsens." }));
   }
 
   function renderTradeResult() {
@@ -506,7 +524,7 @@
       card.append(rankTable(give, get));
       card.append(el("p", { class: "muted small", text: "Value counts what each player is worth on any roster; the power delta counts what your lineup actually gains or loses (flex included). A third RB is worth little to a team that already starts two good ones." }));
       if (get.length > give.length) card.append(el("p", { class: "muted small", text: `You receive ${get.length - give.length} more player(s) than you send; you would need to drop that many. Only your best ${state.league.bench} bench players count for depth.` }));
-      if (state.sim) card.append(el("button", { class: "primary", text: "Aplicar este trade a la simulación", onclick: () => applySimTrade(full) }));
+      if (state.sim) card.append(el("button", { class: "primary", text: "Apply this trade to the simulation", onclick: () => applySimTrade(full) }));
     } else if (!note) {
       card.append(el("p", { class: "muted small", text: "Connect a league and pick both teams to see how each lineup changes, not just the raw value." }));
     }
@@ -571,7 +589,7 @@
         el("div", { class: "muted small" }, `with ${r.partner.name}`),
         deltaBar(r.myDelta, r.theirDelta),
         r.fills.length ? el("div", { class: "muted small" }, "Fills: " + r.fills.map((f) => `${f.slot} ${signed(f.gain)}`).join(", ")) : null,
-        el("button", { class: "primary", text: "Ver comparativo →", onclick: () => openInCalculator(meId, r) })));
+        el("button", { class: "primary", text: "View comparison →", onclick: () => openInCalculator(meId, r) })));
     });
     root.append(card);
   }
@@ -697,8 +715,8 @@
     table.append(el("tbody", {}, rows.map((p) => el("tr", {},
       el("td", {}, nameLink(p.id, p.name)), ...cols.map(([key, , fn]) => el("td", { class: "num", text: p[key] === null || p[key] === undefined ? "–" : fn(p) }))))));
     $("#usage-note").textContent = rows.length
-      ? "Porcentajes son parte del total de SU equipo esta temporada (snaps ofensivos, acarreos, objetivos), salvo Catchable/EZ/3-4 Down TGTS que son % de los propios objetivos del jugador. No incluye Routes ni TPRR: el dato público de participación de nflverse no se actualiza en temporada, solo hasta la temporada pasada — no lo voy a inventar a partir de snaps."
-      : "Sin datos para este equipo/posición todavía.";
+      ? "Percentages are a share of THAT team's season total (offensive snaps, carries, targets), except Catchable/EZ/3-4 Down TGTS which are a % of the player's own targets. Routes and TPRR are not included: nflverse's public participation data is not updated in-season, only through last season — I won't fake it from snaps."
+      : "No data for this team/position yet.";
   }
 
   function renderAll() {

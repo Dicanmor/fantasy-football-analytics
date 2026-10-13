@@ -177,18 +177,38 @@ def miss_rates(injuries: pl.DataFrame, log: pl.DataFrame, directory: pl.DataFram
     return dict(zip(rows["report_status"], rows["p"]))
 
 
-def expected_remaining_absence(episodes: pl.DataFrame, k: int, before_season: int, on_ir: bool = False) -> float:
+def expected_remaining_absence(
+    episodes: pl.DataFrame, k: int, before_season: int, on_ir: bool = False,
+    injury: str | None = None, prior_episodes: float = 8.0,
+) -> float:
     """Games still to miss (this one included) for a player who has been out k straight games.
 
     Mean of (games_missed - k + 1) over past episodes that lasted at least k games. Players on injured
     reserve are compared with past episodes that involved IR; players merely listed Out are compared with
     past episodes that started on the report (many IR stints would otherwise inflate a routine 'Out').
+
+    When ``injury`` (this player's CURRENT injury, e.g. "Hamstring", "Knee") is given, the generic estimate
+    above is blended with one computed ONLY from past episodes of that same injury type — a hamstring and a
+    torn ACL that have each cost a player 3 games so far are not equally likely to cost him 3 more. The
+    blend is weighted toward the injury-specific estimate only once enough past episodes of that type exist
+    (``prior_episodes`` = how many matching episodes it takes to weigh it 50/50 against the generic estimate,
+    same shrinkage idea as ``player_risk``'s age/position prior) so a rare injury type with 1-2 past episodes
+    doesn't swing the estimate on its own.
     """
     kind = (pl.col("ir_games") >= 1) if on_ir else ~pl.col("starts_on_ir")
     past = episodes.filter((pl.col("season") < before_season) & (pl.col("games_missed") >= k) & kind)
     if past.height == 0:
         return 1.0
-    return float((past["games_missed"] - k + 1).mean())
+    generic = float((past["games_missed"] - k + 1).mean())
+    if not injury or injury == "Unlabeled (IR)":
+        return generic
+    same = past.filter(pl.col("injury") == injury)
+    n = same.height
+    if n == 0:
+        return generic
+    specific = float((same["games_missed"] - k + 1).mean())
+    w = n / (n + prior_episodes)
+    return w * specific + (1 - w) * generic
 
 
 def availability(
@@ -213,22 +233,33 @@ def availability(
         .unique("gsis_id")
     )
 
-    # Ongoing episode = one that reaches the latest week we have signals for.
+    # Ongoing episode = one that reaches the most recent week we have a real signal for. Use ``report_week``
+    # (same fallback as ``status`` above), NOT ``players["latest_week"].max()`` (roster/snap data, which can
+    # lag the injury report by a week): early in a week, before that week's report has posted, an episode
+    # legitimately still ongoing would otherwise look "over" just because no signal row exists for it yet,
+    # silently falling back to the cruder flat per-report-status miss rate below instead of the real episode
+    # history (verified against live data: a player Out in week 5 with no week-6 report row yet).
+    # ``cur_injury`` is what he is ACTUALLY dealing with right now (not ``most_common_injury`` below, which
+    # is his history over the past 3 seasons).
     ongoing = (
-        episodes.filter((pl.col("season") == season) & (pl.col("end_week") >= players["latest_week"].max()))
-        .select("gsis_id", k=pl.col("games_missed"))
+        episodes.filter((pl.col("season") == season) & (pl.col("end_week") >= report_week))
+        .select("gsis_id", k=pl.col("games_missed"), cur_injury=pl.col("injury"))
         .unique("gsis_id")
     )
     on_ir = pl.col("status").is_in(list(IR_STATUSES))
     pairs = (
-        players.select("gsis_id", on_ir=on_ir).join(ongoing, on="gsis_id").select("k", "on_ir").unique()
+        players.select("gsis_id", on_ir=on_ir).join(ongoing, on="gsis_id")
+        .select("k", "on_ir", "cur_injury").unique()
     )
     abs_tbl = pl.DataFrame(
         [
-            {"k": r["k"], "on_ir": r["on_ir"], "absence": expected_remaining_absence(episodes, int(r["k"]), season, r["on_ir"])}
+            {
+                "k": r["k"], "on_ir": r["on_ir"], "cur_injury": r["cur_injury"],
+                "absence": expected_remaining_absence(episodes, int(r["k"]), season, r["on_ir"], r["cur_injury"]),
+            }
             for r in pairs.iter_rows(named=True)
         ],
-        schema={"k": pl.Int64, "on_ir": pl.Boolean, "absence": pl.Float64},
+        schema={"k": pl.Int64, "on_ir": pl.Boolean, "cur_injury": pl.String, "absence": pl.Float64},
     )
 
     fallback_rate = risk.group_by("position").agg(pl.col("shrunk_rate").mean().alias("pos_rate"))
@@ -236,7 +267,7 @@ def availability(
         players.with_columns(on_ir=on_ir)
         .join(status, on="gsis_id", how="left")
         .join(ongoing, on="gsis_id", how="left")
-        .join(abs_tbl, on=["k", "on_ir"], how="left")
+        .join(abs_tbl, on=["k", "on_ir", "cur_injury"], how="left")
         .join(risk.select("gsis_id", "shrunk_rate", "expected_missed_per_17", "most_common_injury"), on="gsis_id", how="left")
         .join(fallback_rate, on="position", how="left")
         .with_columns(
@@ -409,6 +440,7 @@ def build_player_values(
         .with_columns(
             pl.col("remaining").fill_null(0), absence_now=pl.lit(0.0), base_miss_rate=pl.lit(0.0),
             report_status=pl.lit(None, dtype=pl.String), most_common_injury=pl.lit(None, dtype=pl.String),
+            cur_injury=pl.lit(None, dtype=pl.String),
         )
     )
 
@@ -440,7 +472,7 @@ _SPECIAL_COLS = ["gsis_id", "sleeper_id", "full_name", "position", "team", "age"
 _OUT_COLS = [
     "gsis_id", "sleeper_id", "full_name", "position", "team", "age", "status", "report_status", "games", "raw_ppg",
     "proj_ppg", "adj_ppg", "final_ppg", "adj_note", "replacement_ppg", "remaining", "absence_now", "base_miss_rate",
-    "most_common_injury", "exp_games", "availability", "exp_ppg", "vorp", "value",
+    "most_common_injury", "cur_injury", "exp_games", "availability", "exp_ppg", "vorp", "value",
     "opp", "mu", "share_now", "share_prev", "mate", "mate_share",
 ]
 
@@ -476,6 +508,10 @@ def export_site_data(
                 "ppg": r(x["final_ppg"] if "final_ppg" in x else x["proj_ppg"]),
                 "avail": r(x["availability"]), "exp_games": r(x["exp_games"], 1), "remaining": x["remaining"],
                 "value": r(x["value"], 1), "status": x["report_status"] or ("IR" if x["status"] in IR_STATUSES else None),
+                # His CURRENT injury (e.g. "Hamstring") and how many more games the model expects him to miss
+                # from now, only while he is actually out — not his history (see most_common_injury elsewhere).
+                "injury": x["cur_injury"] if x["cur_injury"] not in (None, "Unlabeled (IR)") else None,
+                "absence": r(x["absence_now"], 1) if x["absence_now"] and x["absence_now"] > 0 else None,
                 "opp": x["opp"], "mu": x["mu"], "share": r(x["share_now"], 3), "share_prev": r(x["share_prev"], 3),
                 "mate": x["mate"], "mate_share": r(x["mate_share"], 3),
             }
@@ -569,7 +605,10 @@ def main(argv: list[str] | None = None) -> None:
     proj_by_sid = {
         r["sleeper_id"]: r["final_ppg"] for r in players.iter_rows(named=True) if r["sleeper_id"]
     }
-    export_weekly_log(active, tables["log"], load_raw("schedules"), load_raw("player_stats", seasons=[as_of[0]]), as_of, proj_by_sid, SITE_JSON.parent)
+    export_weekly_log(
+        active, tables["log"], load_raw("schedules"), load_raw("player_stats", seasons=[as_of[0]]), as_of,
+        proj_by_sid, SITE_JSON.parent, injuries=load_raw("injuries"),
+    )
 
     from ff.models.season_usage import USAGE_POSITIONS, build_usage_table, export_usage
 

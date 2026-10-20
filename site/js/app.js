@@ -83,12 +83,7 @@
   }
   function statusTag(p) {
     if (!p.status) return null;
-    let title;
-    if (p.injury) {
-      title = p.injury;
-      if (p.absence) title += ` · model expects ~${fmt(p.absence, 1)} more game(s) out, from injury-type history`;
-    }
-    return el("span", { class: "tag" + (p.status === "IR" ? " ir" : ""), text: p.status, title });
+    return el("span", { class: "tag" + (p.status === "IR" ? " ir" : ""), text: p.status });
   }
   function roleText(p) {
     if (p.share === null || p.share === undefined) return null;
@@ -96,15 +91,15 @@
     if (p.mate) t += ` · shares with ${p.mate} (${pct(p.mate_share)})`;
     return t;
   }
-  /* His CURRENT injury (not his history) and the model's expected remaining absence, based on how past
-   * players with that SAME injury type have recovered (see value.py's expected_remaining_absence) — the
-   * number that makes a hurt-but-talented player a buy-low target once it starts trending down. Null
-   * unless he's actually dealing with something right now. */
-  function injuryText(p) {
-    if (!p.injury) return null;
-    let t = `Current injury: ${p.injury}`;
-    if (p.absence) t += ` — model expects ~${fmt(p.absence, 1)} more game(s) out (based on how other players with this injury recovered)`;
-    return t;
+  /* Whether he practiced in the MOST RECENT practice report — for every player, not just hurt ones.
+   * Deliberately just this fact and nothing guessed from it: we used to show a specific "games until he's
+   * back" estimate, but on a thin per-injury sample (especially a player who went straight to IR with no
+   * weekly report history at all) that number could be badly wrong, so it's gone. This is the latest
+   * verified signal the public report gives, full stop. */
+  const PRACTICE_LABEL = { Full: "Practiced fully", Limited: "Limited practice", "Did Not": "Did not practice" };
+  function practiceText(p) {
+    if (!p.practice) return p.status ? "No practice report found for the most recent week." : "Not on this week's injury report (expected to be full go).";
+    return `Last practice: ${PRACTICE_LABEL[p.practice] || p.practice}`;
   }
   const label = (p) => `${p.name} · ${p.pos}${p.team ? " " + p.team : ""}`;
   const TIER_TITLE = "Tier: natural groupings in the value gaps for this position (S = best). Two players a tier apart differ more than two in the same tier.";
@@ -181,7 +176,7 @@
         el("div", { class: "stat" }, el("span", { class: "muted small", text: "Exp. games" }), el("b", { text: fmt(p.exp_games) }), el("span", { class: "muted small", text: `${Math.round(p.avail * 100)}% availability` })),
         el("div", { class: "stat" }, el("span", { class: "muted small", text: "Value" }), el("b", { text: fmt(p.value, 0) + " pts" }), el("span", { class: "muted small", text: "over replacement" }))),
       roleText(p) ? el("p", { class: "ctx", text: roleText(p) }) : null,
-      injuryText(p) ? el("p", { class: "ctx", text: injuryText(p) }) : null,
+      el("p", { class: "ctx", text: practiceText(p) }),
       p.opp ? el("p", { class: "ctx", text: `This week: vs ${p.opp}, matchup score ${p.mu}/100 for ${p.pos}s (100 = easiest defense)` }) : null,
       el("p", { class: "muted small", text: "PPG is a recency-weighted average of his own games (current season weighted heaviest); it is not a week-by-week box score." }));
   }
@@ -460,7 +455,7 @@
         el("div", {}, rankBadges(id)),
         el("div", { class: "ctx", text: `Projection ${fmt(p.ppg)} ppg × ${fmt(p.exp_games)} expected games (${Math.round(p.avail * 100)}% availability) = ${fmt(p.value, 0)} pts above replacement` }),
         roleText(p) ? el("div", { class: "ctx", text: roleText(p) }) : null,
-        injuryText(p) ? el("div", { class: "ctx", text: injuryText(p) }) : null,
+        el("div", { class: "ctx", text: practiceText(p) }),
         el("label", { class: "small" }, "Your adjustment (ppg) ",
           el("input", { class: "adj", type: "number", step: "0.5", value: adj === undefined ? "" : String(adj), placeholder: "0",
             onchange: (e) => setAdj(id, parseFloat(e.target.value)) })));

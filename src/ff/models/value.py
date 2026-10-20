@@ -223,13 +223,17 @@ def availability(
     p_miss = miss_rates(injuries, log, directory, season * 100 + week)
 
     # Injury-report status for the as_of week (fall back to the previous week if not published yet).
+    # ``last_practice`` (Full/Limited/Did Not Participate) is the most RECENT, most VERIFIABLE signal the
+    # public report gives — unlike a specific return-week guess, it is never a prediction, just "did he
+    # practice", so it does not go stale or mislead the way a games-to-return estimate can on a thin sample.
     inj = injuries.filter((pl.col("game_type") == "REG") & (pl.col("season") == season))
     weeks = inj["week"].cast(pl.Int32).unique().sort().to_list()
     usable = [w for w in weeks if w <= week]
     report_week = usable[-1] if usable else week
     status = (
         inj.filter(pl.col("week") == report_week)
-        .select("gsis_id", "report_status")
+        .with_columns(last_practice=pl.col("practice_status").str.extract(r"^(Full|Limited|Did Not)", 1))
+        .select("gsis_id", "report_status", "last_practice")
         .unique("gsis_id")
     )
 
@@ -440,7 +444,7 @@ def build_player_values(
         .with_columns(
             pl.col("remaining").fill_null(0), absence_now=pl.lit(0.0), base_miss_rate=pl.lit(0.0),
             report_status=pl.lit(None, dtype=pl.String), most_common_injury=pl.lit(None, dtype=pl.String),
-            cur_injury=pl.lit(None, dtype=pl.String),
+            cur_injury=pl.lit(None, dtype=pl.String), last_practice=pl.lit(None, dtype=pl.String),
         )
     )
 
@@ -472,7 +476,7 @@ _SPECIAL_COLS = ["gsis_id", "sleeper_id", "full_name", "position", "team", "age"
 _OUT_COLS = [
     "gsis_id", "sleeper_id", "full_name", "position", "team", "age", "status", "report_status", "games", "raw_ppg",
     "proj_ppg", "adj_ppg", "final_ppg", "adj_note", "replacement_ppg", "remaining", "absence_now", "base_miss_rate",
-    "most_common_injury", "cur_injury", "exp_games", "availability", "exp_ppg", "vorp", "value",
+    "most_common_injury", "cur_injury", "last_practice", "exp_games", "availability", "exp_ppg", "vorp", "value",
     "opp", "mu", "share_now", "share_prev", "mate", "mate_share",
 ]
 
@@ -508,10 +512,12 @@ def export_site_data(
                 "ppg": r(x["final_ppg"] if "final_ppg" in x else x["proj_ppg"]),
                 "avail": r(x["availability"]), "exp_games": r(x["exp_games"], 1), "remaining": x["remaining"],
                 "value": r(x["value"], 1), "status": x["report_status"] or ("IR" if x["status"] in IR_STATUSES else None),
-                # His CURRENT injury (e.g. "Hamstring") and how many more games the model expects him to miss
-                # from now, only while he is actually out — not his history (see most_common_injury elsewhere).
-                "injury": x["cur_injury"] if x["cur_injury"] not in (None, "Unlabeled (IR)") else None,
-                "absence": r(x["absence_now"], 1) if x["absence_now"] and x["absence_now"] > 0 else None,
+                # Whether he practiced in the MOST RECENT practice report (Full/Limited/Did Not Participate) -
+                # for every player, hurt or not. Deliberately NOT a return-date guess (that number was pulled:
+                # on a thin per-injury sample, especially for an IR stint with no weekly report history, the
+                # model's "games remaining" estimate could be badly off). This is just the latest verified
+                # fact the public report gives, nothing extrapolated from it.
+                "practice": x["last_practice"],
                 "opp": x["opp"], "mu": x["mu"], "share": r(x["share_now"], 3), "share_prev": r(x["share_prev"], 3),
                 "mate": x["mate"], "mate_share": r(x["mate_share"], 3),
             }

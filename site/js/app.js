@@ -657,9 +657,25 @@
   }
 
   // ------------------------------------------------------------------ wiring
+  function moveGlider() {
+    const bar = document.querySelector(".tabs"), on = bar && bar.querySelector("button.active");
+    let g = bar && bar.querySelector(".glider");
+    if (!bar || !on) return;
+    if (!g) { g = document.createElement("span"); g.className = "glider"; bar.prepend(g); }
+    g.style.width = on.offsetWidth + "px"; g.style.transform = `translateX(${on.offsetLeft}px)`;
+    if (on.scrollIntoView) { try { on.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" }); } catch (e) { /* ignore */ } }
+  }
   function showTab(name) {
     document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x.dataset.tab === name));
-    document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("hidden", t.id !== "tab-" + name));
+    document.querySelectorAll(".tab").forEach((t) => {
+      const show = t.id === "tab-" + name, wasHidden = t.classList.contains("hidden");
+      t.classList.toggle("hidden", !show);
+      if (show && wasHidden) { // replay the entrance animation, then drop the class so re-renders don't re-animate
+        t.classList.remove("enter"); void t.offsetWidth; t.classList.add("enter");
+        setTimeout(() => t.classList.remove("enter"), 900);
+      }
+    });
+    moveGlider();
   }
 
   // ------------------------------------------------------------------ season stats (usage) tab
@@ -853,6 +869,8 @@
     $("#load-id-btn").addEventListener("click", () => loadLeague($("#league-id").value.trim()));
 
     document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+    moveGlider(); window.addEventListener("resize", moveGlider);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(moveGlider);
 
     $("#me-select").addEventListener("change", (e) => {
       state.trade.meId = e.target.value;

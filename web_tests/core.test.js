@@ -140,6 +140,12 @@ assert.deepStrictEqual(FF.searchPlayers({ a: p("RB", 10, 1, "Jahmyr Gibbs"), b: 
 
 // Sleeper client with a mocked fetch
 (async () => {
+  // stats-tab scatter layout: nice ticks, padded range, zero lines only when data straddles zero, bigger y on top
+  assert.deepStrictEqual(FF.niceTicks(0, 10, 5), [0, 2, 4, 6, 8, 10]);
+  const lay = FF.scatterLayout([{ a: -1, b: 1 }, { a: 1, b: 3 }, { a: null, b: 5 }], "a", "b", { width: 100, height: 100, pad: { l: 0, r: 0, t: 0, b: 0 } });
+  assert.strictEqual(lay.points.length, 2, "points missing a coordinate are dropped");
+  assert.ok(lay.points[1].x > lay.points[0].x && lay.points[1].y < lay.points[0].y, "bigger y is drawn higher (smaller pixel y)");
+  assert.ok(lay.zeroX !== null && lay.zeroY === null, "zero line only on the axis whose data straddles zero (b is all > 0)");
   const fake = (routes) => async (url) => {
     const hit = Object.keys(routes).find((k) => url.endsWith(k));
     return hit ? { ok: true, status: 200, json: async () => routes[hit] } : { ok: false, status: 404, json: async () => null };

@@ -138,3 +138,14 @@ td .delta-chip { padding: 2px 8px; font-size: 12px; }
 .rank-table .rt-arrow { color: var(--muted); width: 20px; }
 .rank-table td.rt-cell.better { background: rgba(46, 204, 113, .18); color: #2ecc71; font-weight: 700; border-radius: 6px; }
 .rank-table td.rt-cell.worse { background: rgba(231, 76, 60, .18); color: #e74c3c; font-weight: 700; border-radius: 6px; }
+
+/* stats charts tab */
+.chart-box { position: relative; overflow-x: auto; }
+.chart-box svg { width: 100%; height: auto; max-width: 980px; display: block; }
+.chart-box .axis { stroke: var(--line); } .chart-box .grid { stroke: var(--line); stroke-dasharray: 2 4; opacity: .7; }
+.chart-box .zero { stroke: var(--muted); stroke-dasharray: 4 3; } .chart-box .mean { stroke: var(--accent); stroke-dasharray: 1 4; opacity: .8; }
+.chart-box text { fill: var(--muted); font-size: 11px; } .chart-box text.lbl { fill: var(--text); font-size: 10px; }
+.chart-box text.axis-title { font-size: 12px; fill: var(--text); }
+.chart-box circle { stroke: var(--card); stroke-width: 1; opacity: .9; cursor: pointer; } .chart-box circle:hover { stroke: var(--text); stroke-width: 2; opacity: 1; }
+.chart-tip { position: absolute; pointer-events: none; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font-size: 12px; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,.2); z-index: 5; }
+#chart-min-wrap { min-width: 220px; } #chart-min { width: 100%; padding: 0; }

@@ -410,9 +410,45 @@
     };
   }
 
+  // ---------------------------------------------------------------- stats-tab charts
+  /* "Nice" axis ticks covering [lo, hi] (1/2/5 x 10^k steps), used by the Stats tab's scatter charts. */
+  function niceTicks(lo, hi, target = 6) {
+    if (!(hi > lo)) return [lo];
+    const raw = (hi - lo) / target, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const step = [1, 2, 5, 10].map((m) => m * mag).find((x) => x >= raw);
+    const out = [];
+    for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-9; v += step) out.push(Math.round(v / step) * step);
+    return out;
+  }
+  /* Axis range with 8% padding; keeps zero in view when the data straddles it (so the quadrant lines show). */
+  function axisRange(values) {
+    const v = values.filter((x) => x !== null && x !== undefined && !Number.isNaN(x));
+    if (!v.length) return [0, 1];
+    let lo = Math.min(...v), hi = Math.max(...v);
+    if (lo === hi) { lo -= 1; hi += 1; }
+    const pad = (hi - lo) * 0.08;
+    return [lo - pad, hi + pad];
+  }
+  /* Pure layout for a scatter: pixel position of each point plus ticks. Points missing x or y are dropped.
+   * ``flipY`` puts bigger y at the TOP (SVG y grows downward). */
+  function scatterLayout(points, xKey, yKey, { width, height, pad }) {
+    const pts = points.filter((p) => p[xKey] !== null && p[xKey] !== undefined && p[yKey] !== null && p[yKey] !== undefined);
+    const [x0, x1] = axisRange(pts.map((p) => p[xKey])), [y0, y1] = axisRange(pts.map((p) => p[yKey]));
+    const px = (x) => pad.l + ((x - x0) / (x1 - x0)) * (width - pad.l - pad.r);
+    const py = (y) => pad.t + (1 - (y - y0) / (y1 - y0)) * (height - pad.t - pad.b);
+    return {
+      points: pts.map((p) => ({ p, x: px(p[xKey]), y: py(p[yKey]) })),
+      xTicks: niceTicks(x0, x1).map((v) => ({ v, at: px(v) })), yTicks: niceTicks(y0, y1).map((v) => ({ v, at: py(v) })),
+      zeroX: x0 < 0 && x1 > 0 ? px(0) : null, zeroY: y0 < 0 && y1 > 0 ? py(0) : null,
+      meanX: pts.length ? px(pts.reduce((s, p) => s + p[xKey], 0) / pts.length) : null,
+      meanY: pts.length ? py(pts.reduce((s, p) => s + p[yKey], 0) / pts.length) : null,
+    };
+  }
+
   return {
     replacementRank, replacementLevels, valuesForLeague, pAtLeast, teamPower, powerRankings, slotLabels,
     evaluateValue, evaluateTrade, verdictFor, teamNeeds, findTrades, matchupLabel, parseLeague, buildTeams,
     searchPlayers, createSleeper, SleeperError, FAIR_TOLERANCE, computeRanks, computeTiers, posLabel, applyTrade, leagueRanks,
+    niceTicks, axisRange, scatterLayout,
   };
 });

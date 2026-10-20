@@ -218,6 +218,19 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
   assert.match(d.querySelector("#usage-note").textContent, /Routes|No data/);
   assert.deepStrictEqual(errors, [], "usage tab did not throw: " + errors.join("; "));
 
+  // Stats charts tab: renders an SVG scatter (or the "no data yet" note) for every chart kind without throwing
+  click(w, d.querySelector('.tabs button[data-tab="charts"]'));
+  await tick(60);
+  assert.ok(!d.querySelector("#tab-charts").classList.contains("hidden"));
+  const kinds = [...d.querySelectorAll("#chart-kind button")];
+  assert.strictEqual(kinds.length, 5, "five chart kinds");
+  for (let i = 0; i < kinds.length; i++) {
+    click(w, [...d.querySelectorAll("#chart-kind button")][i]);
+    await tick(30);
+    assert.ok(d.querySelector("#chart-box svg") || /No chart data/.test(d.querySelector("#chart-note").textContent), "chart " + i + " renders or explains why not");
+  }
+  assert.deepStrictEqual(errors, [], "charts tab did not throw: " + errors.join("; "));
+
   // ---- Sleeper unreachable (e.g. CORS): clear message, page still usable
   ({ w, d, errors } = await open("offline"));
   d.querySelector("#username").value = "diego";

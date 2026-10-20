@@ -626,6 +626,10 @@ def main(argv: list[str] | None = None) -> None:
     )
     export_usage(usage_table, SITE_JSON.parent)
 
+    from ff.models.stats_charts import build_stats, export_stats
+
+    export_stats(build_stats(load_raw("pbp", seasons=[as_of[0]]), load_raw("players"), as_of), SITE_JSON.parent)
+
     print(f"As of {as_of[0]} week {as_of[1]} | default league: {league.teams} teams, slots {list(league.slots)}")
     print("replacement PPG: " + ", ".join(f"{k} {v:.1f}" for k, v in replacement.items()))
     print(players.select("overall_rank", "full_name", "position", "team", "proj_ppg", "exp_games", "value", "opp", "mu").head(12))

@@ -1,0 +1,124 @@
+"""Data for the website's "Stats" tab: RBSDM-style efficiency charts (EPA, CPOE, success rate) built straight
+from nflverse play-by-play, the same source those charts use — nothing is scraped from any other site.
+
+Every number is computed from ``pbp`` for the CURRENT regular season, up to (not including) the as-of week:
+  - EPA (expected points added) is nflfastR's own per-play column; "per play" = mean over the plays counted.
+  - QB: dropbacks = every ``qb_dropback`` (passes, sacks, scrambles). EPA/dropback uses all of them; CPOE is
+    averaged over pass attempts only (nflfastR does not define it for sacks); success rate = share of those
+    dropbacks with ``success`` == 1.
+  - RB: designed carries only (``rush_attempt`` == 1, QB scrambles excluded).
+  - WR/TE: targets (``pass_attempt`` == 1 with a ``receiver_player_id``); EPA/target and average air yards/target.
+  - Team: offense and defense EPA/play, split pass vs rush.
+
+Like ``season_usage``, functions take their data as parameters (no ``load_raw`` inside), so this is unit-testable
+with synthetic frames and does not depend on downloaded data in CI.
+"""
+from __future__ import annotations
+
+import json
+
+import polars as pl
+
+QB_POS = ("QB",)
+RB_POS = ("RB", "FB")
+REC_POS = ("WR", "TE")
+
+
+def _season_plays(pbp: pl.DataFrame, as_of: tuple[int, int]) -> pl.DataFrame:
+    season, week = as_of
+    return pbp.filter((pl.col("season") == season) & (pl.col("week") < week) & (pl.col("season_type") == "REG"))
+
+
+def _directory(players: pl.DataFrame) -> pl.DataFrame:
+    return players.select("gsis_id", name="display_name", pos="position").filter(pl.col("gsis_id").is_not_null())
+
+
+def _latest_team(plays: pl.DataFrame, id_col: str) -> pl.DataFrame:
+    return (
+        plays.filter(pl.col(id_col).is_not_null() & pl.col("posteam").is_not_null())
+        .sort("week").group_by(id_col, maintain_order=True).agg(pl.col("posteam").last().alias("team"))
+        .rename({id_col: "gsis_id"})
+    )
+
+
+def _finish(df: pl.DataFrame, directory: pl.DataFrame, teams: pl.DataFrame, positions: tuple[str, ...]) -> pl.DataFrame:
+    return (
+        df.join(directory, on="gsis_id", how="inner").filter(pl.col("pos").is_in(list(positions)))
+        .join(teams, on="gsis_id", how="left")
+    )
+
+
+def qb_table(plays: pl.DataFrame, directory: pl.DataFrame) -> pl.DataFrame:
+    db = plays.filter((pl.col("qb_dropback") == 1) & pl.col("passer_player_id").is_not_null())
+    g = db.group_by(gsis_id="passer_player_id").agg(
+        pl.len().alias("n"),
+        pl.col("epa").mean().alias("epa"),
+        pl.col("success").mean().alias("success"),
+        pl.col("cpoe").filter(pl.col("pass_attempt") == 1).mean().alias("cpoe"),
+    ).filter(pl.col("cpoe").is_not_null() & pl.col("epa").is_not_null())
+    return _finish(g, directory, _latest_team(db, "passer_player_id"), QB_POS)
+
+
+def rb_table(plays: pl.DataFrame, directory: pl.DataFrame) -> pl.DataFrame:
+    rush = plays.filter((pl.col("rush_attempt") == 1) & (pl.col("qb_scramble").fill_null(0) != 1) & pl.col("rusher_player_id").is_not_null())
+    g = rush.group_by(gsis_id="rusher_player_id").agg(
+        pl.len().alias("n"), pl.col("epa").mean().alias("epa"), pl.col("success").mean().alias("success"),
+    ).filter(pl.col("epa").is_not_null())
+    return _finish(g, directory, _latest_team(rush, "rusher_player_id"), RB_POS)
+
+
+def rec_table(plays: pl.DataFrame, directory: pl.DataFrame) -> pl.DataFrame:
+    tgt = plays.filter((pl.col("pass_attempt") == 1) & pl.col("receiver_player_id").is_not_null())
+    g = tgt.group_by(gsis_id="receiver_player_id").agg(
+        pl.len().alias("n"), pl.col("epa").mean().alias("epa"), pl.col("air_yards").mean().alias("adot"),
+        pl.col("success").mean().alias("success"),
+    ).filter(pl.col("epa").is_not_null() & pl.col("adot").is_not_null())
+    return _finish(g, directory, _latest_team(tgt, "receiver_player_id"), REC_POS)
+
+
+def team_table(plays: pl.DataFrame) -> pl.DataFrame:
+    """One row per team: offense and defense EPA/play split pass vs rush."""
+    pas = plays.filter(pl.col("qb_dropback") == 1)
+    rus = plays.filter((pl.col("rush_attempt") == 1) & (pl.col("qb_scramble").fill_null(0) != 1))
+    def side(df: pl.DataFrame, by: str, name: str) -> pl.DataFrame:
+        return df.filter(pl.col(by).is_not_null()).group_by(team=by).agg(
+            pl.col("epa").mean().alias(name), pl.len().alias(name + "_n"))
+    return (
+        side(pas, "posteam", "off_pass").join(side(rus, "posteam", "off_rush"), on="team", how="full", coalesce=True)
+        .join(side(pas, "defteam", "def_pass"), on="team", how="full", coalesce=True)
+        .join(side(rus, "defteam", "def_rush"), on="team", how="full", coalesce=True)
+        .drop_nulls("team").sort("team")
+    )
+
+
+def _rows(df: pl.DataFrame, cols: dict[str, int]) -> list[dict]:
+    """Rows as plain dicts, metrics rounded (``cols`` maps column -> decimals), missing teams/values kept as None."""
+    out = []
+    for r in df.sort("n", descending=True).iter_rows(named=True):
+        row = {"id": r["gsis_id"], "name": r["name"], "team": r.get("team"), "n": r["n"]}
+        for c, d in cols.items():
+            row[c] = None if r[c] is None else round(r[c], d)
+        out.append(row)
+    return out
+
+
+def build_stats(pbp: pl.DataFrame, players: pl.DataFrame, as_of: tuple[int, int]) -> dict:
+    plays = _season_plays(pbp, as_of)
+    d = _directory(players)
+    team = team_table(plays)
+    team_rows = [
+        {"team": r["team"], **{k: (None if r[k] is None else round(r[k], 3)) for k in ("off_pass", "off_rush", "def_pass", "def_rush")}}
+        for r in team.iter_rows(named=True)
+    ]
+    return {
+        "as_of": {"season": as_of[0], "through_week": as_of[1] - 1},
+        "qb": _rows(qb_table(plays, d), {"epa": 3, "cpoe": 2, "success": 3}),
+        "rb": _rows(rb_table(plays, d), {"epa": 3, "success": 3}),
+        "rec": _rows(rec_table(plays, d), {"epa": 3, "adot": 2, "success": 3}),
+        "team": team_rows,
+    }
+
+
+def export_stats(stats: dict, directory) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "stats_charts.json").write_text(json.dumps(stats, separators=(",", ":")), encoding="utf-8")

@@ -15,8 +15,9 @@ The goal is a fast, easy-to-use website that answers the questions I actually as
 | **Player value model** | Rest-of-season points over replacement, rank/position badges, S-F tiers, and your own adjustments | ✅ v2.1 (ramp fix + tiers) |
 | **Team power rankings** | Rank every team by lineup (flex, K, DEF, IR aware) and depth | ✅ v2 |
 | **Trade calculator** | Value exchanged **and** the effect on both lineups, color-coded, chained trade simulation, a player card with a weekly game log | ✅ v2.2 |
-| **Trade finder** | Trades that fix the weakest spots of your lineup without gutting the other team | ✅ New |
+| **Trade finder** | Trades that fix the weakest spots of your lineup without gutting the other team | ✅ |
 | **Season stats** | Team + position usage shares (snap/rush/target share, target quality); no Routes/TPRR (data unavailable in-season) | ✅ New |
+| **Stats charts** | RBSDM-style scatter charts (QB EPA vs CPOE, RB EPA vs success rate, WR/TE EPA vs depth, team offense/defense pass vs rush EPA), computed from nflverse play-by-play | ✅ New |
 | **Website** | Static site on GitHub Pages, refreshed weekly by GitHub Actions; reads your real Sleeper lineup | ✅ v2 |
 
 ## Data
@@ -199,6 +200,15 @@ Try it: `python -m ff.models.power rosters.json`.
   first time you open that tab) so it does not slow down the initial page load. The **PROJ** column there is your
   season-long projection repeated every future week, not a week-specific number — see Known limits.
 
+## Stats charts
+
+A chart tab in the style of RBSDM, but computed here: `pbp` already carries nflfastR's `epa`, `cpoe` and `success`
+columns (the same ones RBSDM plots), so nothing is scraped from any other site. `ff.models.stats_charts` aggregates
+them for the current regular season (through the last completed week) into `site/data/stats_charts.json`; the page
+draws the scatters in plain SVG (layout math in `core.js`, unit-tested). QB: EPA/dropback vs CPOE; RB: EPA/rush vs
+success rate (designed runs only); WR/TE: EPA/target vs average depth of target; teams: pass vs rush EPA/play for
+offense and (flipped) defense. A slider hides low-volume players.
+
 ## Season stats
 
 Its own tab: pick a team, pick a position, see how touches and targets are actually split this season
@@ -318,6 +328,7 @@ src/ff/
   models/trade.py      # trade evaluation: value + power delta for both teams
   models/weeklog.py    # per-player weekly game log for the player card's "Semana a semana" tab
   models/season_usage.py # season usage shares (snap/rush/target share, target quality) for the Season stats tab
+  models/stats_charts.py # EPA / CPOE / success-rate tables from pbp for the Stats charts tab
 experiments/           # backtests behind the model defaults (projection variants, injury history)
 site/                  # the website (index.html, js/core.js, js/app.js, data/)
 web_tests/             # Node tests for the site (logic + jsdom smoke test)

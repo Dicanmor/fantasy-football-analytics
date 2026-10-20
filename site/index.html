@@ -40,6 +40,7 @@
       <button role="tab" data-tab="finder">Trade finder</button>
       <button role="tab" data-tab="values">Player values</button>
       <button role="tab" data-tab="usage">Season stats</button>
+      <button role="tab" data-tab="charts">Stats charts</button>
     </nav>
 
     <section id="tab-power" class="tab"></section>
@@ -120,6 +121,19 @@
         </div>
         <div class="table-wrap"><table id="usage-table"></table></div>
         <p class="muted small" id="usage-note"></p>
+      </div>
+    </section>
+    <section id="tab-charts" class="tab hidden">
+      <div class="card">
+        <h2>Stats charts</h2>
+        <p class="muted small">Efficiency charts built from nflverse play-by-play (EPA, CPOE, success rate), this season. Hover a dot for the numbers.</p>
+        <div class="row">
+          <div class="pills" id="chart-kind"></div>
+          <label id="chart-min-wrap"><span>Minimum <span id="chart-min-unit"></span>: <b id="chart-min-val"></b></span>
+            <input type="range" id="chart-min" min="0" max="100" value="0"></label>
+        </div>
+        <div id="chart-box" class="chart-box"></div>
+        <p class="muted small" id="chart-note"></p>
       </div>
     </section>
   </main>

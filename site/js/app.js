@@ -44,6 +44,7 @@
     finder: { focus: [], results: null },
     weeks: null, weeksPromise: null, // lazy-loaded site/data/player_weeks.json (see ensureWeeklyData)
     usage: { data: null, promise: null, team: null, pos: null }, // lazy-loaded site/data/team_usage.json
+    charts: { data: null, promise: null, kind: "qb", min: {} }, // lazy-loaded site/data/stats_charts.json
     sort: { key: "value", dir: -1 }, pos: "ALL", q: "",
   };
   const teamById = (id) => state.teams.find((t) => String(t.rosterId) === String(id));
@@ -714,6 +715,100 @@
       : "No data for this team/position yet.";
   }
 
+  // ------------------------------------------------------------------ stats charts tab (RBSDM-style scatters)
+  const TEAM_COLORS = {
+    ARI: "#97233f", ATL: "#a71930", BAL: "#241773", BUF: "#00338d", CAR: "#0085ca", CHI: "#c83803", CIN: "#fb4f14", CLE: "#ff3c00",
+    DAL: "#003594", DEN: "#fb4f14", DET: "#0076b6", GB: "#203731", HOU: "#a71930", IND: "#002c5f", JAX: "#006778", KC: "#e31837",
+    LA: "#003594", LAC: "#0080c6", LV: "#a5acaf", MIA: "#008e97", MIN: "#4f2683", NE: "#002244", NO: "#d3bc8d", NYG: "#0b2265",
+    NYJ: "#125740", PHI: "#004c54", PIT: "#ffb612", SEA: "#69be28", SF: "#aa0000", TB: "#d50a0a", TEN: "#4b92db", WAS: "#773141",
+  };
+  const lastName = (full) => {
+    const parts = String(full).split(" ");
+    while (parts.length > 1 && /^(Jr\.?|Sr\.?|II|III|IV|V)$/i.test(parts[parts.length - 1])) parts.pop();
+    return parts[parts.length - 1];
+  };
+  const teamColor = (t) => TEAM_COLORS[t] || "#888";
+  const CHARTS = {
+    qb: { label: "QB: EPA/dropback vs CPOE", src: "qb", unit: "dropbacks", x: ["cpoe", "CPOE (completion % over expected)", 1], y: ["epa", "EPA per dropback", 2],
+      note: "Up and right is better. CPOE is averaged over pass attempts; EPA per dropback counts every dropback, sacks and scrambles included." },
+    rb: { label: "RB: EPA/rush vs success rate", src: "rb", unit: "carries", x: ["success", "Success rate (%)", 0, 100], y: ["epa", "EPA per rush", 2],
+      note: "Designed runs only (QB scrambles excluded). Success = the play kept the offense on schedule (nflfastR's definition)." },
+    rec: { label: "WR/TE: EPA/target vs depth", src: "rec", unit: "targets", x: ["adot", "Average depth of target (air yards)", 1], y: ["epa", "EPA per target", 2],
+      note: "Right = deeper targets, up = more efficient. EPA per target includes incompletions." },
+    off: { label: "Team offense: pass vs rush EPA/play", src: "team", x: ["off_rush", "Rush EPA/play", 2], y: ["off_pass", "Pass EPA/play (dropbacks)", 2],
+      note: "Up and right is better." },
+    def: { label: "Team defense: pass vs rush EPA/play allowed", src: "team", flip: true, x: ["def_rush", "Rush EPA/play allowed (flipped)", 2], y: ["def_pass", "Pass EPA/play allowed (flipped)", 2],
+      note: "Both axes are flipped (value shown is minus the EPA allowed) so, as on the other charts, up and right is better for the defense." },
+  };
+  async function ensureChartData() {
+    if (state.charts.data) return state.charts.data;
+    if (!state.charts.promise) {
+      state.charts.promise = fetch("data/stats_charts.json").then((r) => (r.ok ? r.json() : null))
+        .then((d) => { state.charts.data = d || {}; return state.charts.data; }).catch(() => { state.charts.data = {}; return {}; });
+    }
+    return state.charts.promise;
+  }
+  function chartPoints(cfg, data) {
+    const [xk, , , xs = 1] = cfg.x, [yk] = cfg.y, sign = cfg.flip ? -1 : 1;
+    return (data[cfg.src] || []).map((r) => ({
+      ...r, label: cfg.src === "team" ? r.team : lastName(r.name),
+      px: r[xk] === null || r[xk] === undefined ? null : r[xk] * xs * sign, py: r[yk] === null || r[yk] === undefined ? null : r[yk] * sign,
+    }));
+  }
+  const svgEl = (tag, attrs, text) => {
+    const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    Object.entries(attrs || {}).forEach(([k, v]) => n.setAttribute(k, v));
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
+  async function renderCharts() {
+    const data = await ensureChartData();
+    const pills = clear($("#chart-kind"));
+    Object.entries(CHARTS).forEach(([k, c]) => pills.append(el("button", { class: state.charts.kind === k ? "active" : "", text: c.label,
+      onclick: () => { state.charts.kind = k; renderCharts(); } })));
+    const cfg = CHARTS[state.charts.kind], box = clear($("#chart-box"));
+    const all = chartPoints(cfg, data);
+    if (!all.length) { $("#chart-note").textContent = "No chart data yet: run `python -m ff.models.value` to generate site/data/stats_charts.json."; $("#chart-min-wrap").classList.add("hidden"); return; }
+    const hasMin = cfg.src !== "team";
+    $("#chart-min-wrap").classList.toggle("hidden", !hasMin);
+    let pts = all;
+    if (hasMin) {
+      const maxN = Math.max(...all.map((p) => p.n)), slider = $("#chart-min");
+      if (state.charts.min[state.charts.kind] === undefined) state.charts.min[state.charts.kind] = Math.round(maxN * 0.35);
+      slider.max = String(maxN); slider.value = String(state.charts.min[state.charts.kind]);
+      $("#chart-min-unit").textContent = cfg.unit; $("#chart-min-val").textContent = slider.value;
+      pts = all.filter((p) => p.n >= Number(slider.value));
+    }
+    const W = 900, H = 560, pad = { l: 56, r: 20, t: 16, b: 48 };
+    const lay = FF.scatterLayout(pts, "px", "py", { width: W, height: H, pad });
+    const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": cfg.label });
+    lay.xTicks.forEach((t) => { svg.append(svgEl("line", { class: "grid", x1: t.at, x2: t.at, y1: pad.t, y2: H - pad.b }), svgEl("text", { x: t.at, y: H - pad.b + 16, "text-anchor": "middle" }, String(+t.v.toFixed(2)))); });
+    lay.yTicks.forEach((t) => { svg.append(svgEl("line", { class: "grid", x1: pad.l, x2: W - pad.r, y1: t.at, y2: t.at }), svgEl("text", { x: pad.l - 8, y: t.at + 4, "text-anchor": "end" }, String(+t.v.toFixed(2)))); });
+    if (lay.zeroX !== null) svg.append(svgEl("line", { class: "zero", x1: lay.zeroX, x2: lay.zeroX, y1: pad.t, y2: H - pad.b }));
+    if (lay.zeroY !== null) svg.append(svgEl("line", { class: "zero", x1: pad.l, x2: W - pad.r, y1: lay.zeroY, y2: lay.zeroY }));
+    if (lay.meanX !== null) svg.append(svgEl("line", { class: "mean", x1: lay.meanX, x2: lay.meanX, y1: pad.t, y2: H - pad.b }), svgEl("line", { class: "mean", x1: pad.l, x2: W - pad.r, y1: lay.meanY, y2: lay.meanY }));
+    svg.append(svgEl("text", { class: "axis-title", x: (pad.l + W - pad.r) / 2, y: H - 8, "text-anchor": "middle" }, cfg.x[1]),
+      svgEl("text", { class: "axis-title", x: 14, y: (pad.t + H - pad.b) / 2, "text-anchor": "middle", transform: `rotate(-90 14 ${(pad.t + H - pad.b) / 2})` }, cfg.y[1]));
+    const tip = el("div", { class: "chart-tip hidden" });
+    const fmtVal = (v, d) => (v === null || v === undefined ? "–" : Number(v).toFixed(d));
+    const placed = [];
+    lay.points.slice().sort((a, b) => (b.p.n || 0) - (a.p.n || 0)).forEach(({ p, x, y }) => {
+      const c = svgEl("circle", { cx: x, cy: y, r: cfg.src === "team" ? 7 : 5.5, fill: teamColor(p.team) });
+      const show = () => {
+        const lines = [`<b>${p.name || p.team}</b>${p.team && p.name ? " · " + p.team : ""}`];
+        if (p.n !== undefined) lines.push(`${p.n} ${cfg.unit}`);
+        lines.push(`${cfg.x[1].split(" (")[0]}: ${fmtVal(p.px * (cfg.flip ? -1 : 1) / (cfg.x[3] || 1), cfg.x[2])}`, `${cfg.y[1].split(" (")[0]}: ${fmtVal(p[cfg.y[0]], 3)}`);
+        tip.innerHTML = lines.join("<br>"); tip.classList.remove("hidden");
+        tip.style.left = Math.min(x / W * box.clientWidth + 12, box.clientWidth - 150) + "px"; tip.style.top = (y / H * (svg.getBoundingClientRect().height || H)) + "px";
+      };
+      c.addEventListener("mouseenter", show); c.addEventListener("click", show); c.addEventListener("mouseleave", () => tip.classList.add("hidden"));
+      svg.append(c);
+      if (!placed.some((q) => Math.abs(q.x - x) < (cfg.src === "team" ? 26 : 34) && Math.abs(q.y - y) < 10)) { placed.push({ x, y }); svg.append(svgEl("text", { class: "lbl", x: x + 8, y: y + 3 }, p.label)); }
+    });
+    box.append(svg, tip);
+    $("#chart-note").textContent = `${cfg.note} Through week ${data.as_of ? data.as_of.through_week : "?"} of ${data.as_of ? data.as_of.season : ""}. Dotted blue lines = average of the dots shown.`;
+  }
+
   function renderAll() {
     renderHeader();
     renderPlayerOptions();
@@ -766,8 +861,10 @@
     });
     $("#adj-reset").addEventListener("click", () => { state.adj = { players: {}, teams: {} }; saveAdj(); recompute(); renderAll(); });
 
+    $("#chart-min").addEventListener("input", (e) => { state.charts.min[state.charts.kind] = Number(e.target.value); renderCharts(); });
     renderAll();
     renderUsageSetup();
+    renderCharts();
   }
 
   init();

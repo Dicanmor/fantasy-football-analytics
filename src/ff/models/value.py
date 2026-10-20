@@ -629,6 +629,14 @@ def main(argv: list[str] | None = None) -> None:
     from ff.models.stats_charts import build_stats, export_stats
 
     export_stats(build_stats(load_raw("pbp", seasons=[as_of[0]]), load_raw("players"), as_of), SITE_JSON.parent)
+    try:  # team logos for the Stats charts tab, served from our own site (cosmetic: never fail the build over them)
+        import nflreadpy
+
+        from ff.models.stats_charts import export_logos
+        teams = nflreadpy.load_teams()
+        export_logos(dict(zip(teams["team_abbr"], teams["team_logo_espn"])), SITE_JSON.parent.parent / "img" / "logos")
+    except Exception as e:  # noqa: BLE001
+        print(f"logos skipped: {e}")
 
     print(f"As of {as_of[0]} week {as_of[1]} | default league: {league.teams} teams, slots {list(league.slots)}")
     print("replacement PPG: " + ", ".join(f"{k} {v:.1f}" for k, v in replacement.items()))

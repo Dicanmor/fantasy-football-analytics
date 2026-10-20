@@ -122,3 +122,31 @@ def build_stats(pbp: pl.DataFrame, players: pl.DataFrame, as_of: tuple[int, int]
 def export_stats(stats: dict, directory) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "stats_charts.json").write_text(json.dumps(stats, separators=(",", ":")), encoding="utf-8")
+
+
+def export_logos(logo_urls: dict[str, str], directory, fetch=None) -> int:
+    """Best-effort: save each team's logo next to the site so the browser loads it from OUR domain (no hotlinking,
+    nothing for an ad blocker or CDN to break). ``logo_urls`` maps team abbreviation -> image URL; files that already
+    exist are skipped; a failed download is skipped, never fatal (the page falls back to a colored dot). Returns the
+    number of logos written. ``fetch`` (url -> bytes) is injectable for tests."""
+    import urllib.request
+
+    def default_fetch(url: str) -> bytes:
+        with urllib.request.urlopen(url, timeout=20) as r:  # noqa: S310 - fixed https logo URLs from nflverse
+            return r.read()
+
+    fetch = fetch or default_fetch
+    directory.mkdir(parents=True, exist_ok=True)
+    written = 0
+    for abbr, url in logo_urls.items():
+        dest = directory / f"{abbr}.png"
+        if dest.exists() or not url:
+            continue
+        try:
+            data = fetch(url)
+        except Exception:  # noqa: BLE001 - logos are cosmetic
+            continue
+        if data:
+            dest.write_bytes(data)
+            written += 1
+    return written

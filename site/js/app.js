@@ -730,7 +730,8 @@
   const teamColor = (t) => TEAM_COLORS[t] || "#888";
   // ESPN's public logo CDN (same abbreviations as ours except WAS/LA); if a logo fails to load we fall back to a colored dot.
   const LOGO_ABBR = { WAS: "wsh", LA: "lar" };
-  const logoUrl = (t) => `https://a.espnstatic.com/i/teamlogos/nfl/500/${LOGO_ABBR[t] || String(t).toLowerCase()}.png`;
+  const logoUrl = (t) => `img/logos/${t}.png`; // saved next to the site by the pipeline
+  const logoFallback = (t) => `https://a.espncdn.com/i/teamlogos/nfl/500/${LOGO_ABBR[t] || String(t).toLowerCase()}.png`;
   const CHARTS = {
     qb: { label: "Quarterbacks", src: "qb", unit: "dropbacks", x: ["cpoe", "Accuracy vs expected (CPOE, %)", 1], y: ["epa", "Points added per dropback (EPA)", 2],
       note: "Up and right is better: efficient AND accurate. A dropback is any pass attempt, sack or scramble." },
@@ -812,7 +813,8 @@
       if (cfg.src === "team") {
         c.setAttribute("display", "none");
         const img = svgEl("image", { x: x - 14, y: y - 14, width: 28, height: 28, href: logoUrl(p.team), class: "logo" });
-        img.addEventListener("error", () => { img.remove(); c.removeAttribute("display"); svg.append(svgEl("text", { class: "lbl", x: x + 9, y: y + 3 }, p.team)); });
+        let retried = false;
+        img.addEventListener("error", () => { if (!retried) { retried = true; img.setAttribute("href", logoFallback(p.team)); return; } img.remove(); c.removeAttribute("display"); svg.append(svgEl("text", { class: "lbl", x: x + 9, y: y + 3 }, p.team)); });
         ["mouseenter", "click"].forEach((ev) => img.addEventListener(ev, show)); img.addEventListener("mouseleave", () => tip.classList.add("hidden"));
         svg.append(c, img);
         const key = { x, y }; if (!placed.some((q) => Math.abs(q.x - x) < 30 && Math.abs(q.y - y) < 30)) placed.push(key);

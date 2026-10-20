@@ -47,3 +47,17 @@ def test_rb_rec_and_team_tables():
     assert {r["pos"] if "pos" in r else None for r in s["rec"]} == {None}  # no stray columns leak into JSON rows
     aaa = next(t for t in s["team"] if t["team"] == "AAA")
     assert aaa["off_pass"] == pytest.approx(1 / 3, abs=1e-3) and aaa["def_pass"] == pytest.approx(0.2)
+
+
+def test_export_logos_saves_files_skips_existing_and_survives_failed_downloads(tmp_path):
+    from ff.models.stats_charts import export_logos
+
+    def fetch(url):
+        if "bad" in url:
+            raise OSError("boom")
+        return b"PNG"
+
+    d = tmp_path / "logos"
+    assert export_logos({"KC": "https://x/kc.png", "BAD": "https://x/bad.png"}, d, fetch=fetch) == 1
+    assert (d / "KC.png").read_bytes() == b"PNG" and not (d / "BAD.png").exists()
+    assert export_logos({"KC": "https://x/kc.png"}, d, fetch=fetch) == 0  # already there

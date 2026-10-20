@@ -429,6 +429,18 @@
     const pad = (hi - lo) * 0.08;
     return [lo - pad, hi + pad];
   }
+  /* Least-squares line y = a + b*x through the points (null when fewer than 3 points or no spread in x). */
+  function linearFit(points, xKey, yKey) {
+    const pts = points.filter((p) => p[xKey] !== null && p[xKey] !== undefined && p[yKey] !== null && p[yKey] !== undefined);
+    const n = pts.length;
+    if (n < 3) return null;
+    const mx = pts.reduce((s, p) => s + p[xKey], 0) / n, my = pts.reduce((s, p) => s + p[yKey], 0) / n;
+    let sxx = 0, sxy = 0;
+    pts.forEach((p) => { sxx += (p[xKey] - mx) ** 2; sxy += (p[xKey] - mx) * (p[yKey] - my); });
+    if (sxx === 0) return null;
+    const slope = sxy / sxx;
+    return { slope, intercept: my - slope * mx };
+  }
   /* Pure layout for a scatter: pixel position of each point plus ticks. Points missing x or y are dropped.
    * ``flipY`` puts bigger y at the TOP (SVG y grows downward). */
   function scatterLayout(points, xKey, yKey, { width, height, pad }) {
@@ -440,6 +452,10 @@
       points: pts.map((p) => ({ p, x: px(p[xKey]), y: py(p[yKey]) })),
       xTicks: niceTicks(x0, x1).map((v) => ({ v, at: px(v) })), yTicks: niceTicks(y0, y1).map((v) => ({ v, at: py(v) })),
       zeroX: x0 < 0 && x1 > 0 ? px(0) : null, zeroY: y0 < 0 && y1 > 0 ? py(0) : null,
+      fit: (() => {
+        const f = linearFit(pts, xKey, yKey);
+        return f ? { x1: px(x0), y1: py(f.intercept + f.slope * x0), x2: px(x1), y2: py(f.intercept + f.slope * x1) } : null;
+      })(),
       meanX: pts.length ? px(pts.reduce((s, p) => s + p[xKey], 0) / pts.length) : null,
       meanY: pts.length ? py(pts.reduce((s, p) => s + p[yKey], 0) / pts.length) : null,
     };
@@ -449,6 +465,6 @@
     replacementRank, replacementLevels, valuesForLeague, pAtLeast, teamPower, powerRankings, slotLabels,
     evaluateValue, evaluateTrade, verdictFor, teamNeeds, findTrades, matchupLabel, parseLeague, buildTeams,
     searchPlayers, createSleeper, SleeperError, FAIR_TOLERANCE, computeRanks, computeTiers, posLabel, applyTrade, leagueRanks,
-    niceTicks, axisRange, scatterLayout,
+    niceTicks, axisRange, linearFit, scatterLayout,
   };
 });

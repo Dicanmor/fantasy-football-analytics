@@ -139,6 +139,13 @@ assert.deepStrictEqual(FF.searchPlayers({ a: p("RB", 10, 1, "Jahmyr Gibbs"), b: 
 }
 
 // Sleeper client with a mocked fetch
+{
+  const f = FF.linearFit([{ a: 0, b: 1 }, { a: 1, b: 3 }, { a: 2, b: 5 }], "a", "b");
+  assert.ok(Math.abs(f.slope - 2) < 1e-9 && Math.abs(f.intercept - 1) < 1e-9);
+  assert.strictEqual(FF.linearFit([{ a: 0, b: 1 }], "a", "b"), null);
+  const lay = FF.scatterLayout([{ a: 0, b: 1 }, { a: 1, b: 3 }, { a: 2, b: 5 }], "a", "b", { width: 100, height: 100, pad: { l: 0, r: 0, t: 0, b: 0 } });
+  assert.ok(lay.fit && lay.fit.x1 < lay.fit.x2 && lay.fit.y1 > lay.fit.y2); // rising trend goes up-right on screen
+}
 (async () => {
   // stats-tab scatter layout: nice ticks, padded range, zero lines only when data straddles zero, bigger y on top
   assert.deepStrictEqual(FF.niceTicks(0, 10, 5), [0, 2, 4, 6, 8, 10]);

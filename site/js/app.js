@@ -728,17 +728,20 @@
     return parts[parts.length - 1];
   };
   const teamColor = (t) => TEAM_COLORS[t] || "#888";
+  // ESPN's public logo CDN (same abbreviations as ours except WAS/LA); if a logo fails to load we fall back to a colored dot.
+  const LOGO_ABBR = { WAS: "wsh", LA: "lar" };
+  const logoUrl = (t) => `https://a.espnstatic.com/i/teamlogos/nfl/500/${LOGO_ABBR[t] || String(t).toLowerCase()}.png`;
   const CHARTS = {
-    qb: { label: "QB: EPA/dropback vs CPOE", src: "qb", unit: "dropbacks", x: ["cpoe", "CPOE (completion % over expected)", 1], y: ["epa", "EPA per dropback", 2],
-      note: "Up and right is better. CPOE is averaged over pass attempts; EPA per dropback counts every dropback, sacks and scrambles included." },
-    rb: { label: "RB: EPA/rush vs success rate", src: "rb", unit: "carries", x: ["success", "Success rate (%)", 0, 100], y: ["epa", "EPA per rush", 2],
-      note: "Designed runs only (QB scrambles excluded). Success = the play kept the offense on schedule (nflfastR's definition)." },
-    rec: { label: "WR/TE: EPA/target vs depth", src: "rec", unit: "targets", x: ["adot", "Average depth of target (air yards)", 1], y: ["epa", "EPA per target", 2],
-      note: "Right = deeper targets, up = more efficient. EPA per target includes incompletions." },
-    off: { label: "Team offense: pass vs rush EPA/play", src: "team", x: ["off_rush", "Rush EPA/play", 2], y: ["off_pass", "Pass EPA/play (dropbacks)", 2],
+    qb: { label: "Quarterbacks", src: "qb", unit: "dropbacks", x: ["cpoe", "Accuracy vs expected (CPOE, %)", 1], y: ["epa", "Points added per dropback (EPA)", 2],
+      note: "Up and right is better: efficient AND accurate. A dropback is any pass attempt, sack or scramble." },
+    rb: { label: "Running backs", src: "rb", unit: "carries", x: ["success", "Success rate (%)", 0, 100], y: ["epa", "Points added per carry (EPA)", 2],
+      note: "Designed runs only (QB scrambles excluded). Success rate = share of runs that kept the offense on schedule." },
+    rec: { label: "Receivers (WR/TE)", src: "rec", unit: "targets", x: ["adot", "Average depth of target (air yards)", 1], y: ["epa", "Points added per target (EPA)", 2],
+      note: "Right = deeper targets, up = more efficient. Incompletions count against the player." },
+    off: { label: "Team offense", src: "team", x: ["off_rush", "Rushing: points added per play (EPA)", 2], y: ["off_pass", "Passing: points added per play (EPA)", 2],
       note: "Up and right is better." },
-    def: { label: "Team defense: pass vs rush EPA/play allowed", src: "team", flip: true, x: ["def_rush", "Rush EPA/play allowed (flipped)", 2], y: ["def_pass", "Pass EPA/play allowed (flipped)", 2],
-      note: "Both axes are flipped (value shown is minus the EPA allowed) so, as on the other charts, up and right is better for the defense." },
+    def: { label: "Team defense", src: "team", flip: true, x: ["def_rush", "Run defense: points prevented per play (EPA, flipped)", 2], y: ["def_pass", "Pass defense: points prevented per play (EPA, flipped)", 2],
+      note: "Axes are flipped (minus the EPA the defense allows) so up and right is better, like the other charts." },
   };
   async function ensureChartData() {
     if (state.charts.data) return state.charts.data;
@@ -782,11 +785,15 @@
     const W = 900, H = 560, pad = { l: 56, r: 20, t: 16, b: 48 };
     const lay = FF.scatterLayout(pts, "px", "py", { width: W, height: H, pad });
     const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": cfg.label });
+    const clip = svgEl("clipPath", { id: "plot-clip" });
+    clip.append(svgEl("rect", { x: pad.l, y: pad.t, width: W - pad.l - pad.r, height: H - pad.t - pad.b }));
+    svg.append(clip);
     lay.xTicks.forEach((t) => { svg.append(svgEl("line", { class: "grid", x1: t.at, x2: t.at, y1: pad.t, y2: H - pad.b }), svgEl("text", { x: t.at, y: H - pad.b + 16, "text-anchor": "middle" }, String(+t.v.toFixed(2)))); });
     lay.yTicks.forEach((t) => { svg.append(svgEl("line", { class: "grid", x1: pad.l, x2: W - pad.r, y1: t.at, y2: t.at }), svgEl("text", { x: pad.l - 8, y: t.at + 4, "text-anchor": "end" }, String(+t.v.toFixed(2)))); });
     if (lay.zeroX !== null) svg.append(svgEl("line", { class: "zero", x1: lay.zeroX, x2: lay.zeroX, y1: pad.t, y2: H - pad.b }));
     if (lay.zeroY !== null) svg.append(svgEl("line", { class: "zero", x1: pad.l, x2: W - pad.r, y1: lay.zeroY, y2: lay.zeroY }));
     if (lay.meanX !== null) svg.append(svgEl("line", { class: "mean", x1: lay.meanX, x2: lay.meanX, y1: pad.t, y2: H - pad.b }), svgEl("line", { class: "mean", x1: pad.l, x2: W - pad.r, y1: lay.meanY, y2: lay.meanY }));
+    if (lay.fit) svg.append(svgEl("line", { class: "fit", x1: lay.fit.x1, y1: lay.fit.y1, x2: lay.fit.x2, y2: lay.fit.y2, "clip-path": "url(#plot-clip)" }));
     svg.append(svgEl("text", { class: "axis-title", x: (pad.l + W - pad.r) / 2, y: H - 8, "text-anchor": "middle" }, cfg.x[1]),
       svgEl("text", { class: "axis-title", x: 14, y: (pad.t + H - pad.b) / 2, "text-anchor": "middle", transform: `rotate(-90 14 ${(pad.t + H - pad.b) / 2})` }, cfg.y[1]));
     const tip = el("div", { class: "chart-tip hidden" });
@@ -802,11 +809,20 @@
         tip.style.left = Math.min(x / W * box.clientWidth + 12, box.clientWidth - 150) + "px"; tip.style.top = (y / H * (svg.getBoundingClientRect().height || H)) + "px";
       };
       c.addEventListener("mouseenter", show); c.addEventListener("click", show); c.addEventListener("mouseleave", () => tip.classList.add("hidden"));
+      if (cfg.src === "team") {
+        c.setAttribute("display", "none");
+        const img = svgEl("image", { x: x - 14, y: y - 14, width: 28, height: 28, href: logoUrl(p.team), class: "logo" });
+        img.addEventListener("error", () => { img.remove(); c.removeAttribute("display"); svg.append(svgEl("text", { class: "lbl", x: x + 9, y: y + 3 }, p.team)); });
+        ["mouseenter", "click"].forEach((ev) => img.addEventListener(ev, show)); img.addEventListener("mouseleave", () => tip.classList.add("hidden"));
+        svg.append(c, img);
+        const key = { x, y }; if (!placed.some((q) => Math.abs(q.x - x) < 30 && Math.abs(q.y - y) < 30)) placed.push(key);
+        return;
+      }
       svg.append(c);
       if (!placed.some((q) => Math.abs(q.x - x) < (cfg.src === "team" ? 26 : 34) && Math.abs(q.y - y) < 10)) { placed.push({ x, y }); svg.append(svgEl("text", { class: "lbl", x: x + 8, y: y + 3 }, p.label)); }
     });
     box.append(svg, tip);
-    $("#chart-note").textContent = `${cfg.note} Through week ${data.as_of ? data.as_of.through_week : "?"} of ${data.as_of ? data.as_of.season : ""}. Dotted blue lines = average of the dots shown.`;
+    $("#chart-note").textContent = `${cfg.note} Through week ${data.as_of ? data.as_of.through_week : "?"} of ${data.as_of ? data.as_of.season : ""}. Dotted lines = average of the dots shown; solid gray line = overall trend.`;
   }
 
   function renderAll() {

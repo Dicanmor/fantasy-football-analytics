@@ -143,7 +143,8 @@ td .delta-chip { padding: 2px 8px; font-size: 12px; }
 .chart-box { position: relative; overflow-x: auto; }
 .chart-box svg { width: 100%; height: auto; max-width: 980px; display: block; }
 .chart-box .axis { stroke: var(--line); } .chart-box .grid { stroke: var(--line); stroke-dasharray: 2 4; opacity: .7; }
-.chart-box .zero { stroke: var(--muted); stroke-dasharray: 4 3; } .chart-box .mean { stroke: var(--accent); stroke-dasharray: 1 4; opacity: .8; }
+.chart-box .zero { stroke: var(--muted); stroke-dasharray: 4 3; } .chart-box .fit { stroke: var(--muted); stroke-width: 1.6; opacity: .9; } .chart-box image.logo { cursor: pointer; }
+.chart-box .mean { stroke: var(--accent); stroke-dasharray: 1 4; opacity: .8; }
 .chart-box text { fill: var(--muted); font-size: 11px; } .chart-box text.lbl { fill: var(--text); font-size: 10px; }
 .chart-box text.axis-title { font-size: 12px; fill: var(--text); }
 .chart-box circle { stroke: var(--card); stroke-width: 1; opacity: .9; cursor: pointer; } .chart-box circle:hover { stroke: var(--text); stroke-width: 2; opacity: 1; }

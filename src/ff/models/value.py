@@ -211,11 +211,43 @@ def expected_remaining_absence(
     return w * specific + (1 - w) * generic
 
 
+def sleeper_absence(players: pl.DataFrame, episodes: pl.DataFrame, season: int) -> pl.Series:
+    """Games still to miss according to Sleeper's injury details, for players the weekly NFL report cannot describe.
+
+    Expects columns ``on_ir``, ``k`` (games missed so far in his ongoing NFL-report episode, null if none), ``cur_injury`` (that
+    episode's label), ``sl_status``, ``sl_part``, ``remaining``. Rules, in order:
+      - ACL / Achilles while on IR -> out for the rest of the season (assumption, see ``ff.ingest.sleeper``);
+      - on IR with NO episode in the NFL report (rookies, IR-before-report), or one it could only label "Unlabeled (IR)",
+        but with a Sleeper body part -> the usual expected remaining absence for that body part (history blend), counting
+        the games already missed (1 if unknown);
+      - otherwise null (the caller falls back to the episode-based or flat estimates).
+    """
+    from ff.ingest.sleeper import base_body_part, is_season_ending
+
+    cache: dict[tuple, float] = {}
+    out = []
+    for r in players.iter_rows(named=True):
+        part, hurt = r["sl_part"], bool(r["on_ir"]) or r["sl_status"] == "IR"
+        if not part or not hurt:
+            out.append(None)
+        elif is_season_ending(part):
+            out.append(float(r["remaining"] or 0))
+        elif (r["k"] is None or r["cur_injury"] == "Unlabeled (IR)") and r["on_ir"]:
+            base, k = base_body_part(part), int(r["k"] or 1)
+            if (base, k) not in cache:
+                cache[(base, k)] = expected_remaining_absence(episodes, k, season, True, base)
+            out.append(cache[(base, k)])
+        else:
+            out.append(None)
+    return pl.Series("sl_absence", out, dtype=pl.Float64)
+
+
 def availability(
     players: pl.DataFrame,
     tables: dict[str, pl.DataFrame],
     injuries: pl.DataFrame,
     as_of: tuple[int, int],
+    sleeper: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """Adds ``absence_now`` (games he is expected to miss from now) and ``base_miss_rate``."""
     season, week = as_of
@@ -267,23 +299,37 @@ def availability(
     )
 
     fallback_rate = risk.group_by("position").agg(pl.col("shrunk_rate").mean().alias("pos_rate"))
-    return (
+    if sleeper is None or "sleeper_id" not in players.columns:
+        sleeper = pl.DataFrame(schema={"sleeper_id": pl.String, "sl_status": pl.String, "sl_part": pl.String, "sl_notes": pl.String, "sl_news": pl.Int64})
+    else:
+        sleeper = sleeper.with_columns(pl.col("sleeper_id").cast(pl.String))
+        players = players.with_columns(pl.col("sleeper_id").cast(pl.String))
+    if "sleeper_id" not in players.columns:
+        players = players.with_columns(sleeper_id=pl.lit(None, dtype=pl.String))
+    joined = (
         players.with_columns(on_ir=on_ir)
+        .join(sleeper, on="sleeper_id", how="left")
         .join(status, on="gsis_id", how="left")
         .join(ongoing, on="gsis_id", how="left")
         .join(abs_tbl, on=["k", "on_ir", "cur_injury"], how="left")
         .join(risk.select("gsis_id", "shrunk_rate", "expected_missed_per_17", "most_common_injury"), on="gsis_id", how="left")
         .join(fallback_rate, on="position", how="left")
+    )
+    joined = joined.with_columns(sleeper_absence(joined, episodes, season))
+    return (
+        joined
         .with_columns(
             base_miss_rate=pl.coalesce("shrunk_rate", "pos_rate"),
-            absence_now=pl.when(pl.col("absence").is_not_null())
+            absence_now=pl.when(pl.col("sl_absence").is_not_null())
+            .then(pl.col("sl_absence"))
+            .when(pl.col("absence").is_not_null())
             .then(pl.col("absence"))
             .when(pl.col("on_ir"))
             .then(pl.lit(4.0))  # on IR but no episode found: the in-season IR minimum
             .otherwise(pl.col("report_status").replace_strict(p_miss, default=0.0, return_dtype=pl.Float64))
             .fill_null(0.0),
         )
-        .drop("shrunk_rate", "pos_rate", "k", "absence", "on_ir")
+        .drop("shrunk_rate", "pos_rate", "k", "absence", "on_ir", "sl_absence")
     )
 
 
@@ -399,7 +445,8 @@ def _replacement(table: pl.DataFrame, pos: str, league: League) -> tuple[float, 
 
 
 def build_player_values(
-    league: League, as_of: tuple[int, int], tables: dict[str, pl.DataFrame] | None = None
+    league: League, as_of: tuple[int, int], tables: dict[str, pl.DataFrame] | None = None,
+    sleeper: pl.DataFrame | None = None,
 ) -> tuple[pl.DataFrame, dict[str, float], dict[str, list[float]]]:
     """Values for QB/RB/WR/TE plus K and DEF. Returns (players, replacement PPG per position, ppg pools).
 
@@ -417,7 +464,7 @@ def build_player_values(
         .join(remaining_games(load_raw("schedules"), as_of), on="team", how="left")
         .with_columns(pl.col("remaining").fill_null(0))
     )
-    players = availability(players, tables, injuries, as_of)
+    players = availability(players, tables, injuries, as_of, sleeper)
 
     # pools of raw PPG (players with >= 6 games) so the website can recompute replacement for ITS league
     pools: dict[str, list[float]] = {}
@@ -445,6 +492,8 @@ def build_player_values(
             pl.col("remaining").fill_null(0), absence_now=pl.lit(0.0), base_miss_rate=pl.lit(0.0),
             report_status=pl.lit(None, dtype=pl.String), most_common_injury=pl.lit(None, dtype=pl.String),
             cur_injury=pl.lit(None, dtype=pl.String), last_practice=pl.lit(None, dtype=pl.String),
+            sl_status=pl.lit(None, dtype=pl.String), sl_part=pl.lit(None, dtype=pl.String), sl_notes=pl.lit(None, dtype=pl.String),
+            sl_news=pl.lit(None, dtype=pl.Int64),
         )
     )
 
@@ -476,7 +525,7 @@ _SPECIAL_COLS = ["gsis_id", "sleeper_id", "full_name", "position", "team", "age"
 _OUT_COLS = [
     "gsis_id", "sleeper_id", "full_name", "position", "team", "age", "status", "report_status", "games", "raw_ppg",
     "proj_ppg", "adj_ppg", "final_ppg", "adj_note", "replacement_ppg", "remaining", "absence_now", "base_miss_rate",
-    "most_common_injury", "cur_injury", "last_practice", "exp_games", "availability", "exp_ppg", "vorp", "value",
+    "most_common_injury", "cur_injury", "last_practice", "sl_status", "sl_part", "sl_notes", "sl_news", "exp_games", "availability", "exp_ppg", "vorp", "value",
     "opp", "mu", "share_now", "share_prev", "mate", "mate_share",
 ]
 
@@ -518,6 +567,9 @@ def export_site_data(
                 # model's "games remaining" estimate could be badly off). This is just the latest verified
                 # fact the public report gives, nothing extrapolated from it.
                 "practice": x["last_practice"],
+                # Sleeper's own injury detail ("Knee - ACL" / "Surgery" / when the news last changed), only for players
+                # Sleeper currently lists as injured; absent otherwise.
+                **({"sl": {"part": x["sl_part"], "note": x["sl_notes"], "ts": x["sl_news"]}} if x["sl_status"] else {}),
                 "opp": x["opp"], "mu": x["mu"], "share": r(x["share_now"], 3), "share_prev": r(x["share_prev"], 3),
                 "mate": x["mate"], "mate_share": r(x["mate_share"], 3),
             }
@@ -601,7 +653,11 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     as_of = (a.season or nfl.get_current_season(), a.week or nfl.get_current_week())
-    players, replacement, pools = build_player_values(league, as_of)
+    from ff.config import RAW_DIR
+    from ff.ingest.sleeper import refresh_injuries
+
+    sleeper = refresh_injuries(RAW_DIR / "sleeper_injuries.parquet")
+    players, replacement, pools = build_player_values(league, as_of, sleeper=sleeper)
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     players.write_csv(PROCESSED_DIR / "player_values.csv")
     export_site_data(players, pools, league, as_of)

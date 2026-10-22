@@ -102,6 +102,12 @@
     if (!p.practice) return p.status ? "No practice report found for the most recent week." : "Not on this week's injury report (expected to be full go).";
     return `Last practice: ${PRACTICE_LABEL[p.practice] || p.practice}`;
   }
+  /* Sleeper's own injury detail ("Knee - ACL · Surgery · updated Oct 21"), present only when Sleeper currently lists him as hurt. */
+  function injuryText(p) {
+    if (!p.sl || !p.sl.part) return null;
+    const when = p.sl.ts ? new Date(p.sl.ts).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
+    return `Injury (Sleeper): ${p.sl.part}${p.sl.note ? " · " + p.sl.note : ""}${when ? " · updated " + when : ""}`;
+  }
   const label = (p) => `${p.name} · ${p.pos}${p.team ? " " + p.team : ""}`;
   const TIER_TITLE = "Tier: natural groupings in the value gaps for this position (S = best). Two players a tier apart differ more than two in the same tier.";
   function rankBadges(id) {
@@ -178,6 +184,7 @@
         el("div", { class: "stat" }, el("span", { class: "muted small", text: "Value" }), el("b", { text: fmt(p.value, 0) + " pts" }), el("span", { class: "muted small", text: "over replacement" }))),
       roleText(p) ? el("p", { class: "ctx", text: roleText(p) }) : null,
       el("p", { class: "ctx", text: practiceText(p) }),
+      injuryText(p) ? el("p", { class: "ctx", text: injuryText(p) }) : null,
       p.opp ? el("p", { class: "ctx", text: `This week: vs ${p.opp}, matchup score ${p.mu}/100 for ${p.pos}s (100 = easiest defense)` }) : null,
       el("p", { class: "muted small", text: "PPG is a recency-weighted average of his own games (current season weighted heaviest); it is not a week-by-week box score." }));
   }
@@ -457,6 +464,7 @@
         el("div", { class: "ctx", text: `Projection ${fmt(p.ppg)} ppg × ${fmt(p.exp_games)} expected games (${Math.round(p.avail * 100)}% availability) = ${fmt(p.value, 0)} pts above replacement` }),
         roleText(p) ? el("div", { class: "ctx", text: roleText(p) }) : null,
         el("div", { class: "ctx", text: practiceText(p) }),
+        injuryText(p) ? el("div", { class: "ctx", text: injuryText(p) }) : null,
         el("label", { class: "small" }, "Your adjustment (ppg) ",
           el("input", { class: "adj", type: "number", step: "0.5", value: adj === undefined ? "" : String(adj), placeholder: "0",
             onchange: (e) => setAdj(id, parseFloat(e.target.value)) })));

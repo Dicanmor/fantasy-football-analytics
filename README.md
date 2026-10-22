@@ -82,6 +82,16 @@ windows so ordinary drift is not blamed on the injury.
 IR stint can be missed (roster status updates late); "not back to normal" mixes lingering injury with losing the job; no
 matched control for player quality. v2 will restrict to fantasy-relevant roles.
 
+### Sleeper injury details
+
+The NFL weekly report only gives a body part and misses players who go straight to IR. Sleeper's public player dump
+(`ff.ingest.sleeper`, fetched once per pipeline run, cached in `data/raw/sleeper_injuries.parquet`) also carries
+`injury_body_part` (e.g. "Hamstring", "Knee - ACL"), `injury_notes` and `news_updated`. They are used two ways:
+the site shows them on the player card when Sleeper currently lists him as injured, and the absence estimate uses
+them: ACL or Achilles on IR counts as out for the rest of the season (an assumption: typical return is 8-12 months),
+and an IR player the NFL report could not label gets the history-based estimate for his Sleeper body part. If Sleeper
+cannot be reached the previous file is used, or the pipeline runs without it.
+
 ## Player value model (v2)
 
 Default league: **PPR, 1 QB / 2 RB / 2 WR / 1 TE / 1 FLEX / 1 K / 1 DEF, 5 bench, 3 IR, 12 teams** (`ff/league.py`). The website does not
@@ -331,6 +341,7 @@ src/ff/
   models/trade.py      # trade evaluation: value + power delta for both teams
   models/weeklog.py    # per-player weekly game log for the player card's "Semana a semana" tab
   models/season_usage.py # season usage shares (snap/rush/target share, target quality) for the Season stats tab
+  ingest/sleeper.py      # Sleeper injury details (body part, notes, news time) for the absence model and player card
   models/stats_charts.py # EPA / CPOE / success-rate tables from pbp for the Stats charts tab
 experiments/           # backtests behind the model defaults (projection variants, injury history)
 site/                  # the website (index.html, js/core.js, js/app.js, data/)

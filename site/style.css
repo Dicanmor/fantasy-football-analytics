@@ -210,3 +210,22 @@ input[type="range"] { accent-color: var(--accent); }
 }
 @media (max-width: 700px) { h1 { font-size: 26px; } .card { padding: 16px; border-radius: 18px; } }
 .chart-box text.lbl { paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; font-weight: 600; }
+
+/* stats charts: grouped pills, quadrant tints and corner labels */
+.chart-groups { display: flex; flex-direction: column; gap: 8px; flex: 1 1 420px; }
+.chart-group { display: flex; align-items: flex-start; gap: 10px; }
+.chart-group .pills { flex: 1; min-width: 0; }
+.chart-group .grp { flex: 0 0 120px; padding-top: 8px; font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.chart-title { margin: 14px 0 6px; font-size: 16px; letter-spacing: -.01em; }
+.chart-box rect.quad.good { fill: rgba(0, 214, 143, .07); } .chart-box rect.quad.blue { fill: rgba(58, 168, 255, .08); }
+.chart-box rect.quad.bad { fill: rgba(255, 92, 147, .07); } .chart-box rect.quad.gold { fill: rgba(255, 196, 60, .07); }
+.chart-box .qpill rect { stroke: none; }
+.chart-box .qpill.good rect { fill: rgba(0, 170, 120, .92); } .chart-box .qpill.blue rect { fill: rgba(60, 110, 190, .92); }
+.chart-box .qpill.bad rect { fill: rgba(190, 60, 85, .92); } .chart-box .qpill.gold rect { fill: rgba(175, 140, 40, .92); }
+.chart-box .qpill text { fill: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+.chart-box .qpill { pointer-events: none; }
+@media (max-width: 700px) {
+  .chart-group { flex-direction: column; gap: 4px; } .chart-group .grp { padding-top: 0; }
+  .chart-group .pills { flex-wrap: nowrap; overflow-x: auto; width: 100%; scrollbar-width: none; padding-bottom: 2px; }
+  .chart-group .pills button { flex: none; white-space: nowrap; }
+}

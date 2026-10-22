@@ -17,7 +17,7 @@ The goal is a fast, easy-to-use website that answers the questions I actually as
 | **Trade calculator** | Value exchanged **and** the effect on both lineups, color-coded, chained trade simulation, a player card with a weekly game log | ✅ v2.2 |
 | **Trade finder** | Trades that fix the weakest spots of your lineup without gutting the other team | ✅ |
 | **Season stats** | Team + position usage shares (snap/rush/target share, target quality); no Routes/TPRR (data unavailable in-season) | ✅ New |
-| **Stats charts** | RBSDM-style scatter charts (QB EPA vs CPOE, RB EPA vs success rate, WR/TE EPA vs depth, team offense/defense pass vs rush EPA), computed from nflverse play-by-play | ✅ New |
+| **Stats charts** | RBSDM-style scatter charts (QB EPA vs CPOE, RB EPA vs success rate, WR/TE usage, opportunity and separation charts, team offense/defense pass vs rush EPA), computed from nflverse play-by-play | ✅ New |
 | **Website** | Static site on GitHub Pages, refreshed weekly by GitHub Actions; reads your real Sleeper lineup | ✅ v2 |
 
 ## Data
@@ -207,7 +207,10 @@ columns (the same ones RBSDM plots), so nothing is scraped from any other site. 
 them for the current regular season (through the last completed week) into `site/data/stats_charts.json`; the page
 draws the scatters in plain SVG (layout math in `core.js`, unit-tested). QB: EPA/dropback vs CPOE; RB: EPA/rush vs
 success rate (designed runs only); WR/TE: EPA/target vs average depth of target; teams: pass vs rush EPA/play for
-offense and (flipped) defense. A slider hides low-volume players.
+offense and (flipped) defense. WR and TE each get five charts: EPA vs depth, target share vs yards per target, expected
+vs actual fantasy points (`ff_opportunity`), overall vs red-zone target share, and separation vs YAC above expected
+(NGS receiving). Routes run are not published in-season, so there are no YPRR/TPRR charts; target share and yards per
+target stand in for them. Every chart has tinted quadrants with corner labels and a slider that hides low-volume players.
 
 ## Season stats
 

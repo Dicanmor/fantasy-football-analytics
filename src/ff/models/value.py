@@ -628,7 +628,8 @@ def main(argv: list[str] | None = None) -> None:
 
     from ff.models.stats_charts import build_stats, export_stats
 
-    export_stats(build_stats(load_raw("pbp", seasons=[as_of[0]]), load_raw("players"), as_of), SITE_JSON.parent)
+    export_stats(build_stats(load_raw("pbp", seasons=[as_of[0]]), load_raw("players"), as_of,
+                             opportunity=load_raw("ff_opportunity"), ngs=load_raw("ngs_receiving")), SITE_JSON.parent)
     try:  # team logos for the Stats charts tab, served from our own site (cosmetic: never fail the build over them)
         import nflreadpy
 

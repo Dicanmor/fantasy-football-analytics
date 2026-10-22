@@ -9,6 +9,11 @@ Every number is computed from ``pbp`` for the CURRENT regular season, up to (not
   - RB: designed carries only (``rush_attempt`` == 1, QB scrambles excluded).
   - WR/TE: targets (``pass_attempt`` == 1 with a ``receiver_player_id``); EPA/target and average air yards/target.
   - Team: offense and defense EPA/play, split pass vs rush.
+  - Receivers also get yards per target, share of their team's pass attempts, and share of the team's red-zone
+    pass attempts (yardline_100 <= 20); targets counted only for the team he played for most recently.
+  - xFP vs FP comes from nflverse ``ff_opportunity`` (expected fantasy points from the usage), and the separation
+    chart from NGS receiving (season line, ``week`` == 0). Routes run are NOT available in-season, so there is no
+    YPRR/TPRR chart; target share and yards per target are the honest stand-ins.
 
 Like ``season_usage``, functions take their data as parameters (no ``load_raw`` inside), so this is unit-testable
 with synthetic frames and does not depend on downloaded data in CI.
@@ -69,11 +74,47 @@ def rb_table(plays: pl.DataFrame, directory: pl.DataFrame) -> pl.DataFrame:
 
 def rec_table(plays: pl.DataFrame, directory: pl.DataFrame) -> pl.DataFrame:
     tgt = plays.filter((pl.col("pass_attempt") == 1) & pl.col("receiver_player_id").is_not_null())
+    latest = _latest_team(tgt, "receiver_player_id").rename({"team": "latest"})
+    rz = (pl.col("yardline_100") <= 20).fill_null(False)
+    tgt = tgt.join(latest, left_on="receiver_player_id", right_on="gsis_id", how="left").with_columns(
+        (pl.col("posteam") == pl.col("latest")).fill_null(False).alias("_mine"))
     g = tgt.group_by(gsis_id="receiver_player_id").agg(
         pl.len().alias("n"), pl.col("epa").mean().alias("epa"), pl.col("air_yards").mean().alias("adot"),
         pl.col("success").mean().alias("success"),
+        (pl.when(pl.col("complete_pass") == 1).then(pl.col("yards_gained")).otherwise(0).sum() / pl.len()).alias("ypt"),
+        pl.col("_mine").sum().alias("_n_mine"), (pl.col("_mine") & rz).sum().alias("_rz_mine"),
     ).filter(pl.col("epa").is_not_null() & pl.col("adot").is_not_null())
-    return _finish(g, directory, _latest_team(tgt, "receiver_player_id"), REC_POS)
+    team_att = plays.filter((pl.col("pass_attempt") == 1) & pl.col("posteam").is_not_null()).group_by(team="posteam").agg(
+        pl.len().alias("_team_att"), (pl.col("yardline_100") <= 20).fill_null(False).sum().alias("_team_rz"))
+    out = _finish(g, directory, latest.rename({"latest": "team"}), REC_POS).join(team_att, on="team", how="left")
+    return out.with_columns(
+        pl.when(pl.col("_team_att") > 0).then(pl.col("_n_mine") / pl.col("_team_att")).alias("tgt_share"),
+        pl.when(pl.col("_team_rz") > 0).then(pl.col("_rz_mine") / pl.col("_team_rz")).alias("rz_share"),
+    ).drop("_n_mine", "_rz_mine", "_team_att", "_team_rz")
+
+
+def xfp_table(opportunity: pl.DataFrame, as_of: tuple[int, int]) -> pl.DataFrame:
+    """Expected vs actual fantasy points (nflverse ff_opportunity) per WR/TE, completed regular-season weeks only."""
+    season, week = as_of
+    o = opportunity.filter(
+        (pl.col("season").cast(pl.Utf8) == str(season)) & (pl.col("week") < week) & pl.col("position").is_in(["WR", "TE"])
+        & pl.col("player_id").is_not_null()
+    ).sort("week")
+    return o.group_by("player_id", maintain_order=True).agg(
+        pl.col("full_name").first().alias("name"), pl.col("position").first().alias("pos"), pl.col("posteam").last().alias("team"),
+        pl.col("rec_attempt").fill_null(0).sum().cast(pl.Int64).alias("n"),
+        pl.col("total_fantasy_points_exp").sum().alias("xfp"), pl.col("total_fantasy_points").sum().alias("fp"),
+    ).rename({"player_id": "gsis_id"}).filter(pl.col("n") > 0)
+
+
+def sep_table(ngs: pl.DataFrame, as_of: tuple[int, int]) -> pl.DataFrame:
+    """NGS receiving season line (``week`` == 0): average separation and YAC above expectation, WR/TE."""
+    return ngs.filter(
+        (pl.col("season") == as_of[0]) & (pl.col("season_type") == "REG") & (pl.col("week") == 0)
+        & pl.col("player_position").is_in(["WR", "TE"]) & (pl.col("targets") > 0)
+        & pl.col("avg_separation").is_not_null() & pl.col("avg_yac_above_expectation").is_not_null()
+    ).select(gsis_id="player_gsis_id", name="player_display_name", team="team_abbr", pos="player_position", n="targets",
+             sep="avg_separation", yacoe="avg_yac_above_expectation")
 
 
 def team_table(plays: pl.DataFrame) -> pl.DataFrame:
@@ -96,13 +137,16 @@ def _rows(df: pl.DataFrame, cols: dict[str, int]) -> list[dict]:
     out = []
     for r in df.sort("n", descending=True).iter_rows(named=True):
         row = {"id": r["gsis_id"], "name": r["name"], "team": r.get("team"), "n": r["n"]}
+        if r.get("pos") is not None:
+            row["pos"] = r["pos"]
         for c, d in cols.items():
             row[c] = None if r[c] is None else round(r[c], d)
         out.append(row)
     return out
 
 
-def build_stats(pbp: pl.DataFrame, players: pl.DataFrame, as_of: tuple[int, int]) -> dict:
+def build_stats(pbp: pl.DataFrame, players: pl.DataFrame, as_of: tuple[int, int],
+                opportunity: pl.DataFrame | None = None, ngs: pl.DataFrame | None = None) -> dict:
     plays = _season_plays(pbp, as_of)
     d = _directory(players)
     team = team_table(plays)
@@ -114,7 +158,9 @@ def build_stats(pbp: pl.DataFrame, players: pl.DataFrame, as_of: tuple[int, int]
         "as_of": {"season": as_of[0], "through_week": as_of[1] - 1},
         "qb": _rows(qb_table(plays, d), {"epa": 3, "cpoe": 2, "success": 3}),
         "rb": _rows(rb_table(plays, d), {"epa": 3, "success": 3}),
-        "rec": _rows(rec_table(plays, d), {"epa": 3, "adot": 2, "success": 3}),
+        "rec": _rows(rec_table(plays, d), {"epa": 3, "adot": 2, "success": 3, "ypt": 2, "tgt_share": 4, "rz_share": 4}),
+        "xfp": _rows(xfp_table(opportunity, as_of), {"xfp": 1, "fp": 1}) if opportunity is not None else [],
+        "sep": _rows(sep_table(ngs, as_of), {"sep": 2, "yacoe": 2}) if ngs is not None else [],
         "team": team_rows,
     }
 

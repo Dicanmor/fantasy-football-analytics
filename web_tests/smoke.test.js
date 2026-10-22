@@ -223,7 +223,7 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
   await tick(60);
   assert.ok(!d.querySelector("#tab-charts").classList.contains("hidden"));
   const kinds = [...d.querySelectorAll("#chart-kind button")];
-  assert.strictEqual(kinds.length, 5, "five chart kinds");
+  assert.strictEqual(kinds.length, 14, "14 chart kinds (QB, RB, 5 WR, 5 TE, team offense and defense)");
   for (let i = 0; i < kinds.length; i++) {
     click(w, [...d.querySelectorAll("#chart-kind button")][i]);
     await tick(30);

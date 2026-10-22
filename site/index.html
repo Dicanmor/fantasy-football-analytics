@@ -129,10 +129,11 @@
         <h2>Stats charts</h2>
         <p class="muted small">How efficient are players and teams this season? Built from nflverse play-by-play. Hover a dot for the numbers.</p>
         <div class="row">
-          <div class="pills" id="chart-kind"></div>
+          <div id="chart-kind" class="chart-groups"></div>
           <label id="chart-min-wrap"><span>Minimum <span id="chart-min-unit"></span>: <b id="chart-min-val"></b></span>
             <input type="range" id="chart-min" min="0" max="100" value="0"></label>
         </div>
+        <h3 id="chart-title" class="chart-title"></h3>
         <div id="chart-box" class="chart-box"></div>
         <p class="muted small" id="chart-note"></p>
         <p class="muted small"><b>EPA</b> = Expected Points Added: how many points a play adds compared with what an average team would score from that situation. <b>CPOE</b> = Completion % Over Expected: completion rate compared with what the throw's difficulty predicts. <b>Success rate</b> = share of plays that kept the offense on schedule.</p>

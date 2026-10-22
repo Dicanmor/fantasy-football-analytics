@@ -676,6 +676,7 @@
       }
     });
     moveGlider();
+    if (name === "charts") renderCharts();
   }
 
   // ------------------------------------------------------------------ season stats (usage) tab
@@ -748,18 +749,50 @@
   const LOGO_ABBR = { WAS: "wsh", LA: "lar" };
   const logoUrl = (t) => `img/logos/${t}.png`; // saved next to the site by the pipeline
   const logoFallback = (t) => `https://a.espncdn.com/i/teamlogos/nfl/500/${LOGO_ABBR[t] || String(t).toLowerCase()}.png`;
+  // Each chart is one entry; "x"/"y" = [data key, axis title, decimals, optional scale (e.g. 100 for %)]; "quad" labels the four corners
+  // (top-right / top-left / bottom-right / bottom-left) like the community charts do. After flipping (defense) up/right is still "better".
+  const Q = (tr, tl, br, bl) => ({ tr, tl, br, bl });
   const CHARTS = {
-    qb: { label: "Quarterbacks", src: "qb", unit: "dropbacks", x: ["cpoe", "Accuracy vs expected (CPOE, %)", 1], y: ["epa", "Points added per dropback (EPA)", 2],
+    qb: { group: "Quarterbacks", pill: "Efficiency vs accuracy", title: "QB efficiency: EPA per dropback vs completion % over expected", src: "qb", unit: "dropbacks",
+      x: ["cpoe", "Accuracy vs expected (CPOE, %)", 1], y: ["epa", "Points added per dropback (EPA)", 2],
+      quad: Q("Elite", "Efficient, less accurate", "Accurate, less efficient", "Struggling"),
       note: "Up and right is better: efficient AND accurate. A dropback is any pass attempt, sack or scramble." },
-    rb: { label: "Running backs", src: "rb", unit: "carries", x: ["success", "Success rate (%)", 0, 100], y: ["epa", "Points added per carry (EPA)", 2],
+    rb: { group: "Running backs", pill: "Efficiency vs consistency", title: "RB efficiency: EPA per carry vs success rate", src: "rb", unit: "carries",
+      x: ["success", "Success rate (%)", 0, 100], y: ["epa", "Points added per carry (EPA)", 2],
+      quad: Q("Elite", "Boom / bust", "Chain movers", "Struggling"),
       note: "Designed runs only (QB scrambles excluded). Success rate = share of runs that kept the offense on schedule." },
-    rec: { label: "Receivers (WR/TE)", src: "rec", unit: "targets", x: ["adot", "Average depth of target (air yards)", 1], y: ["epa", "Points added per target (EPA)", 2],
-      note: "Right = deeper targets, up = more efficient. Incompletions count against the player." },
-    off: { label: "Team offense", src: "team", x: ["off_rush", "Rushing: points added per play (EPA)", 2], y: ["off_pass", "Passing: points added per play (EPA)", 2],
-      note: "Up and right is better." },
-    def: { label: "Team defense", src: "team", flip: true, x: ["def_rush", "Run defense: points prevented per play (EPA, flipped)", 2], y: ["def_pass", "Pass defense: points prevented per play (EPA, flipped)", 2],
+    off: { group: "Teams", pill: "Offense", title: "Team offense: passing vs rushing EPA per play", src: "team",
+      x: ["off_rush", "Rushing: points added per play (EPA)", 2], y: ["off_pass", "Passing: points added per play (EPA)", 2],
+      quad: Q("Complete offense", "Pass-led", "Run-led", "Struggling"), note: "Up and right is better." },
+    def: { group: "Teams", pill: "Defense", title: "Team defense: passing vs rushing EPA allowed", src: "team", flip: true,
+      x: ["def_rush", "Run defense: points prevented per play (EPA, flipped)", 2], y: ["def_pass", "Pass defense: points prevented per play (EPA, flipped)", 2],
+      quad: Q("Lockdown", "Strong vs the pass", "Strong vs the run", "Vulnerable"),
       note: "Axes are flipped (minus the EPA the defense allows) so up and right is better, like the other charts." },
   };
+  [["WR", "Wide receivers"], ["TE", "Tight ends"]].forEach(([pos, group]) => {
+    const k = pos.toLowerCase();
+    CHARTS[k + "_epa"] = { group, pill: "Efficiency vs depth", title: `${pos} efficiency: EPA per target vs average depth of target`, src: "rec", pos, unit: "targets",
+      x: ["adot", "Average depth of target (air yards)", 1], y: ["epa", "Points added per target (EPA)", 2],
+      quad: Q("Deep threats", "Efficient underneath", "Deep, low payoff", "Low impact"),
+      note: "Right = deeper targets, up = more efficient. Incompletions count against the player." };
+    CHARTS[k + "_eff"] = { group, pill: "Usage vs efficiency", title: `${pos} usage & efficiency: target share vs yards per target`, src: "rec", pos, unit: "targets",
+      x: ["ypt", "Yards per target", 1], y: ["tgt_share", "Share of team pass attempts (%)", 0, 100],
+      quad: Q("Elite", "High target share, low efficiency", "High efficiency, low target share", "Low usage"),
+      note: "Routes run are not published in-season, so this uses target share (targets / team pass attempts) and yards per target instead of TPRR and YPRR." };
+    CHARTS[k + "_xfp"] = { group, pill: "Opportunity vs production", title: `${pos} opportunity & production: expected vs actual fantasy points (PPR)`, src: "xfp", pos, unit: "targets",
+      x: ["xfp", "Expected fantasy points (xFP, from usage)", 1], y: ["fp", "Actual fantasy points", 1],
+      quad: Q("High opportunity, high production", "Making it count", "Missed opportunity", "Low opportunity, low production"),
+      note: "xFP = the fantasy points an average player would have scored on the same targets, from nflverse. Above the trend line = scoring more than his usage predicts." };
+    CHARTS[k + "_tgt"] = { group, pill: "Target share vs red zone", title: `${pos} overall target share vs red-zone target share`, src: "rec", pos, unit: "targets",
+      x: ["tgt_share", "Overall target share (% of team pass attempts)", 0, 100], y: ["rz_share", "Red-zone target share (% of team red-zone attempts)", 0, 100],
+      quad: Q("High overall, high red-zone share", "Red-zone specialist", "High overall, low red-zone share", "Low share, low red-zone share"),
+      note: "Red zone = inside the opponent's 20. Shares are of the team's pass attempts while he played for his current team." };
+    CHARTS[k + "_sep"] = { group, pill: "Separation vs YAC", title: `${pos} separation & after-the-catch value`, src: "sep", pos, unit: "targets",
+      x: ["sep", "Average separation at the catch (yards)", 2], y: ["yacoe", "Yards after catch above expected", 2],
+      quad: Q("Separates and creates", "Creates after the catch", "Open, no extra yards", "Struggles"),
+      note: "From NFL Next Gen Stats (via nflverse). These are raw averages, not percentile grades." };
+  });
+  const QUAD_TONE = { tr: "good", tl: "blue", br: "gold", bl: "bad" };
   async function ensureChartData() {
     if (state.charts.data) return state.charts.data;
     if (!state.charts.promise) {
@@ -769,10 +802,10 @@
     return state.charts.promise;
   }
   function chartPoints(cfg, data) {
-    const [xk, , , xs = 1] = cfg.x, [yk] = cfg.y, sign = cfg.flip ? -1 : 1;
-    return (data[cfg.src] || []).map((r) => ({
-      ...r, label: cfg.src === "team" ? r.team : lastName(r.name),
-      px: r[xk] === null || r[xk] === undefined ? null : r[xk] * xs * sign, py: r[yk] === null || r[yk] === undefined ? null : r[yk] * sign,
+    const [xk, , , xs = 1] = cfg.x, [yk, , , ys = 1] = cfg.y, sign = cfg.flip ? -1 : 1;
+    const num = (v, k) => (v === null || v === undefined ? null : v * k * sign);
+    return (data[cfg.src] || []).filter((r) => !cfg.pos || r.pos === cfg.pos).map((r) => ({
+      ...r, label: cfg.src === "team" ? r.team : lastName(r.name), px: num(r[xk], xs), py: num(r[yk], ys),
     }));
   }
   const svgEl = (tag, attrs, text) => {
@@ -781,12 +814,33 @@
     if (text !== undefined) n.textContent = text;
     return n;
   };
+  const wrapWords = (text, max) => {
+    const lines = []; let cur = "";
+    String(text).split(" ").forEach((w) => { if (cur && (cur + " " + w).length > max) { lines.push(cur); cur = w; } else cur = cur ? cur + " " + w : w; });
+    if (cur) lines.push(cur);
+    return lines;
+  };
+  /* A corner label: a colored pill with the text wrapped to a couple of lines, anchored to a corner of the plot area. */
+  function cornerLabel(svg, text, tone, x, y, right, bottom, maxChars) {
+    const lines = wrapWords(text, maxChars), w = Math.max(...lines.map((l) => l.length)) * 6 + 18, h = lines.length * 13 + 9;
+    const g = svgEl("g", { class: "qpill " + tone }), rx = right ? x - w : x, ry = bottom ? y - h : y;
+    g.append(svgEl("rect", { x: rx, y: ry, width: w, height: h, rx: 9 }));
+    lines.forEach((l, i) => g.append(svgEl("text", { x: rx + w / 2, y: ry + 15 + i * 13, "text-anchor": "middle" }, l)));
+    svg.append(g);
+  }
   async function renderCharts() {
     const data = await ensureChartData();
-    const pills = clear($("#chart-kind"));
-    Object.entries(CHARTS).forEach(([k, c]) => pills.append(el("button", { class: state.charts.kind === k ? "active" : "", text: c.label,
-      onclick: () => { state.charts.kind = k; renderCharts(); } })));
+    const groups = {};
+    Object.entries(CHARTS).forEach(([k, c]) => (groups[c.group] = groups[c.group] || []).push([k, c]));
+    const kinds = clear($("#chart-kind"));
+    ["Quarterbacks", "Running backs", "Wide receivers", "Tight ends", "Teams"].forEach((name) => {
+      const items = groups[name] || [];
+      const pills = el("div", { class: "pills" });
+      items.forEach(([k, c]) => pills.append(el("button", { class: state.charts.kind === k ? "active" : "", text: c.pill, onclick: () => { state.charts.kind = k; renderCharts(); } })));
+      kinds.append(el("div", { class: "chart-group" }, [el("span", { class: "grp", text: name }), pills]));
+    });
     const cfg = CHARTS[state.charts.kind], box = clear($("#chart-box"));
+    $("#chart-title").textContent = cfg.title;
     const all = chartPoints(cfg, data);
     if (!all.length) { $("#chart-note").textContent = "No chart data yet: run `python -m ff.models.value` to generate site/data/stats_charts.json."; $("#chart-min-wrap").classList.add("hidden"); return; }
     const hasMin = cfg.src !== "team";
@@ -799,49 +853,58 @@
       $("#chart-min-unit").textContent = cfg.unit; $("#chart-min-val").textContent = slider.value;
       pts = all.filter((p) => p.n >= Number(slider.value));
     }
-    const W = 900, H = 560, pad = { l: 56, r: 20, t: 16, b: 48 };
+    const W = Math.max(320, Math.min(900, box.clientWidth || 900)), narrow = W < 620;
+    const H = Math.round(narrow ? W * 1.05 : W * 0.62), pad = { l: narrow ? 46 : 56, r: 14, t: 14, b: 46 };
     const lay = FF.scatterLayout(pts, "px", "py", { width: W, height: H, pad });
-    const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": cfg.label });
+    const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": cfg.title });
     const clip = svgEl("clipPath", { id: "plot-clip" });
     clip.append(svgEl("rect", { x: pad.l, y: pad.t, width: W - pad.l - pad.r, height: H - pad.t - pad.b }));
     svg.append(clip);
-    lay.xTicks.forEach((t) => { svg.append(svgEl("line", { class: "grid", x1: t.at, x2: t.at, y1: pad.t, y2: H - pad.b }), svgEl("text", { x: t.at, y: H - pad.b + 16, "text-anchor": "middle" }, String(+t.v.toFixed(2)))); });
-    lay.yTicks.forEach((t) => { svg.append(svgEl("line", { class: "grid", x1: pad.l, x2: W - pad.r, y1: t.at, y2: t.at }), svgEl("text", { x: pad.l - 8, y: t.at + 4, "text-anchor": "end" }, String(+t.v.toFixed(2)))); });
-    if (lay.zeroX !== null) svg.append(svgEl("line", { class: "zero", x1: lay.zeroX, x2: lay.zeroX, y1: pad.t, y2: H - pad.b }));
-    if (lay.zeroY !== null) svg.append(svgEl("line", { class: "zero", x1: pad.l, x2: W - pad.r, y1: lay.zeroY, y2: lay.zeroY }));
-    if (lay.meanX !== null) svg.append(svgEl("line", { class: "mean", x1: lay.meanX, x2: lay.meanX, y1: pad.t, y2: H - pad.b }), svgEl("line", { class: "mean", x1: pad.l, x2: W - pad.r, y1: lay.meanY, y2: lay.meanY }));
+    const L = pad.l, R = W - pad.r, T = pad.t, B = H - pad.b;
+    if (lay.meanX !== null && cfg.quad) { // tinted quadrants around the average, like the reference charts
+      const mx = lay.meanX, my = lay.meanY;
+      [["tl", L, T, mx, my], ["tr", mx, T, R, my], ["bl", L, my, mx, B], ["br", mx, my, R, B]].forEach(([q, x0, y0, x1, y1]) =>
+        svg.append(svgEl("rect", { class: "quad " + QUAD_TONE[q], x: x0, y: y0, width: Math.max(0, x1 - x0), height: Math.max(0, y1 - y0) })));
+    }
+    lay.xTicks.forEach((t) => { svg.append(svgEl("line", { class: "grid", x1: t.at, x2: t.at, y1: T, y2: B }), svgEl("text", { x: t.at, y: B + 16, "text-anchor": "middle" }, String(+t.v.toFixed(2)))); });
+    lay.yTicks.forEach((t) => { svg.append(svgEl("line", { class: "grid", x1: L, x2: R, y1: t.at, y2: t.at }), svgEl("text", { x: L - 8, y: t.at + 4, "text-anchor": "end" }, String(+t.v.toFixed(2)))); });
+    if (lay.zeroX !== null) svg.append(svgEl("line", { class: "zero", x1: lay.zeroX, x2: lay.zeroX, y1: T, y2: B }));
+    if (lay.zeroY !== null) svg.append(svgEl("line", { class: "zero", x1: L, x2: R, y1: lay.zeroY, y2: lay.zeroY }));
+    if (lay.meanX !== null) svg.append(svgEl("line", { class: "mean", x1: lay.meanX, x2: lay.meanX, y1: T, y2: B }), svgEl("line", { class: "mean", x1: L, x2: R, y1: lay.meanY, y2: lay.meanY }));
     if (lay.fit) svg.append(svgEl("line", { class: "fit", x1: lay.fit.x1, y1: lay.fit.y1, x2: lay.fit.x2, y2: lay.fit.y2, "clip-path": "url(#plot-clip)" }));
-    svg.append(svgEl("text", { class: "axis-title", x: (pad.l + W - pad.r) / 2, y: H - 8, "text-anchor": "middle" }, cfg.x[1]),
-      svgEl("text", { class: "axis-title", x: 14, y: (pad.t + H - pad.b) / 2, "text-anchor": "middle", transform: `rotate(-90 14 ${(pad.t + H - pad.b) / 2})` }, cfg.y[1]));
+    svg.append(svgEl("text", { class: "axis-title", x: (L + R) / 2, y: H - 8, "text-anchor": "middle" }, cfg.x[1]),
+      svgEl("text", { class: "axis-title", x: 14, y: (T + B) / 2, "text-anchor": "middle", transform: `rotate(-90 14 ${(T + B) / 2})` }, cfg.y[1]));
     const tip = el("div", { class: "chart-tip hidden" });
     const fmtVal = (v, d) => (v === null || v === undefined ? "–" : Number(v).toFixed(d));
-    const placed = [];
+    const sign = cfg.flip ? -1 : 1, mc = narrow ? 14 : 22, placed = [];
     lay.points.slice().sort((a, b) => (b.p.n || 0) - (a.p.n || 0)).forEach(({ p, x, y }) => {
       const c = svgEl("circle", { cx: x, cy: y, r: cfg.src === "team" ? 7 : 5.5, fill: teamColor(p.team) });
       const show = () => {
         const lines = [`<b>${p.name || p.team}</b>${p.team && p.name ? " · " + p.team : ""}`];
         if (p.n !== undefined) lines.push(`${p.n} ${cfg.unit}`);
-        lines.push(`${cfg.x[1].split(" (")[0]}: ${fmtVal(p.px * (cfg.flip ? -1 : 1) / (cfg.x[3] || 1), cfg.x[2])}`, `${cfg.y[1].split(" (")[0]}: ${fmtVal(p[cfg.y[0]], 3)}`);
+        lines.push(`${cfg.x[1].split(" (")[0]}: ${fmtVal(p.px * sign, cfg.x[2])}`, `${cfg.y[1].split(" (")[0]}: ${fmtVal(p.py * sign, cfg.y[2] + 1)}`);
         tip.innerHTML = lines.join("<br>"); tip.classList.remove("hidden");
-        tip.style.left = Math.min(x / W * box.clientWidth + 12, box.clientWidth - 150) + "px"; tip.style.top = (y / H * (svg.getBoundingClientRect().height || H)) + "px";
+        tip.style.left = Math.min(x / W * box.clientWidth + 12, box.clientWidth - 170) + "px"; tip.style.top = (y / H * (svg.getBoundingClientRect().height || H)) + "px";
       };
-      c.addEventListener("mouseenter", show); c.addEventListener("click", show); c.addEventListener("mouseleave", () => tip.classList.add("hidden"));
       // every point is the team's logo (our own copy first, ESPN as a second try, a colored dot as the last resort)
       const isTeam = cfg.src === "team", size = isTeam ? 28 : 26, lblY = y + size / 2 + 10;
       c.setAttribute("display", "none");
       const img = svgEl("image", { x: x - size / 2, y: y - size / 2, width: size, height: size, href: logoUrl(p.team), class: "logo" });
       let retried = false;
       const needsLabel = !placed.some((q) => Math.abs(q.x - x) < (isTeam ? 30 : 40) && Math.abs(q.y - y) < (isTeam ? 30 : 26));
-      const addLabel = () => svg.append(svgEl("text", { class: "lbl", x, y: lblY, "text-anchor": "middle" }, p.label));
       img.addEventListener("error", () => {
         if (!retried) { retried = true; img.setAttribute("href", logoFallback(p.team)); return; }
         img.remove(); c.removeAttribute("display");
         if (isTeam) svg.append(svgEl("text", { class: "lbl", x: x + 9, y: y + 3 }, p.team));
       });
-      ["mouseenter", "click"].forEach((ev) => img.addEventListener(ev, show)); img.addEventListener("mouseleave", () => tip.classList.add("hidden"));
+      [c, img].forEach((n) => { ["mouseenter", "click"].forEach((ev) => n.addEventListener(ev, show)); n.addEventListener("mouseleave", () => tip.classList.add("hidden")); });
       svg.append(c, img);
-      if (needsLabel) { placed.push({ x, y }); if (!isTeam) addLabel(); }
+      if (needsLabel) { placed.push({ x, y }); if (!isTeam) svg.append(svgEl("text", { class: "lbl", x, y: lblY, "text-anchor": "middle" }, p.label)); }
     });
+    if (cfg.quad) { // drawn last so the corner labels sit above the dots
+      cornerLabel(svg, cfg.quad.tl, "blue", L + 8, T + 8, false, false, mc); cornerLabel(svg, cfg.quad.tr, "good", R - 8, T + 8, true, false, mc);
+      cornerLabel(svg, cfg.quad.bl, "bad", L + 8, B - 8, false, true, mc); cornerLabel(svg, cfg.quad.br, "gold", R - 8, B - 8, true, true, mc);
+    }
     box.append(svg, tip);
     $("#chart-note").textContent = `${cfg.note} Through week ${data.as_of ? data.as_of.through_week : "?"} of ${data.as_of ? data.as_of.season : ""}. Dotted lines = average of the dots shown; solid gray line = overall trend.`;
   }
@@ -872,7 +935,9 @@
     $("#load-id-btn").addEventListener("click", () => loadLeague($("#league-id").value.trim()));
 
     document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
-    moveGlider(); window.addEventListener("resize", moveGlider);
+    moveGlider();
+    let rz = null;
+    window.addEventListener("resize", () => { moveGlider(); clearTimeout(rz); rz = setTimeout(() => { if (!$("#tab-charts").classList.contains("hidden")) renderCharts(); }, 200); });
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(moveGlider);
 
     $("#me-select").addEventListener("change", (e) => {

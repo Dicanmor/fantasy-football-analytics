@@ -209,3 +209,4 @@ input[type="range"] { accent-color: var(--accent); }
   .tabs .glider, button { transition: none !important; }
 }
 @media (max-width: 700px) { h1 { font-size: 26px; } .card { padding: 16px; border-radius: 18px; } }
+.chart-box text.lbl { paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; font-weight: 600; }

@@ -826,18 +826,21 @@
         tip.style.left = Math.min(x / W * box.clientWidth + 12, box.clientWidth - 150) + "px"; tip.style.top = (y / H * (svg.getBoundingClientRect().height || H)) + "px";
       };
       c.addEventListener("mouseenter", show); c.addEventListener("click", show); c.addEventListener("mouseleave", () => tip.classList.add("hidden"));
-      if (cfg.src === "team") {
-        c.setAttribute("display", "none");
-        const img = svgEl("image", { x: x - 14, y: y - 14, width: 28, height: 28, href: logoUrl(p.team), class: "logo" });
-        let retried = false;
-        img.addEventListener("error", () => { if (!retried) { retried = true; img.setAttribute("href", logoFallback(p.team)); return; } img.remove(); c.removeAttribute("display"); svg.append(svgEl("text", { class: "lbl", x: x + 9, y: y + 3 }, p.team)); });
-        ["mouseenter", "click"].forEach((ev) => img.addEventListener(ev, show)); img.addEventListener("mouseleave", () => tip.classList.add("hidden"));
-        svg.append(c, img);
-        const key = { x, y }; if (!placed.some((q) => Math.abs(q.x - x) < 30 && Math.abs(q.y - y) < 30)) placed.push(key);
-        return;
-      }
-      svg.append(c);
-      if (!placed.some((q) => Math.abs(q.x - x) < (cfg.src === "team" ? 26 : 34) && Math.abs(q.y - y) < 10)) { placed.push({ x, y }); svg.append(svgEl("text", { class: "lbl", x: x + 8, y: y + 3 }, p.label)); }
+      // every point is the team's logo (our own copy first, ESPN as a second try, a colored dot as the last resort)
+      const isTeam = cfg.src === "team", size = isTeam ? 28 : 26, lblY = y + size / 2 + 10;
+      c.setAttribute("display", "none");
+      const img = svgEl("image", { x: x - size / 2, y: y - size / 2, width: size, height: size, href: logoUrl(p.team), class: "logo" });
+      let retried = false;
+      const needsLabel = !placed.some((q) => Math.abs(q.x - x) < (isTeam ? 30 : 40) && Math.abs(q.y - y) < (isTeam ? 30 : 26));
+      const addLabel = () => svg.append(svgEl("text", { class: "lbl", x, y: lblY, "text-anchor": "middle" }, p.label));
+      img.addEventListener("error", () => {
+        if (!retried) { retried = true; img.setAttribute("href", logoFallback(p.team)); return; }
+        img.remove(); c.removeAttribute("display");
+        if (isTeam) svg.append(svgEl("text", { class: "lbl", x: x + 9, y: y + 3 }, p.team));
+      });
+      ["mouseenter", "click"].forEach((ev) => img.addEventListener(ev, show)); img.addEventListener("mouseleave", () => tip.classList.add("hidden"));
+      svg.append(c, img);
+      if (needsLabel) { placed.push({ x, y }); if (!isTeam) addLabel(); }
     });
     box.append(svg, tip);
     $("#chart-note").textContent = `${cfg.note} Through week ${data.as_of ? data.as_of.through_week : "?"} of ${data.as_of ? data.as_of.season : ""}. Dotted lines = average of the dots shown; solid gray line = overall trend.`;

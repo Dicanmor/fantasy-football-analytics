@@ -485,7 +485,7 @@ def build_player_values(
     tables = tables or build_all(season)
 
     active = current_roster(rw, as_of)
-    proj, replacement = project_ppg(tables["log"], tables["directory"], active, league, as_of, injuries=injuries)
+    proj, replacement = project_ppg(tables["log"], tables["directory"], active, league, as_of)
     players = (
         active.join(proj.select("gsis_id", "games", "eff_games", "raw_ppg", "proj_ppg", "replacement_ppg"), on="gsis_id")
         .join(remaining_games(load_raw("schedules"), as_of), on="team", how="left")

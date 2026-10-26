@@ -108,6 +108,8 @@
     const when = p.sl.ts ? new Date(p.sl.ts).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
     return `Injury (Sleeper): ${p.sl.part}${p.sl.note ? " · " + p.sl.note : ""}${when ? " · updated " + when : ""}`;
   }
+  /* Tiny samples drive the projection a lot: say so. */
+  const sampleText = (p) => (p.g !== undefined && p.g !== null && p.g < 3 ? `Small sample: only ${p.g} game${p.g === 1 ? "" : "s"} behind this projection.` : null);
   const label = (p) => `${p.name} · ${p.pos}${p.team ? " " + p.team : ""}`;
   const TIER_TITLE = "Tier: natural groupings in the value gaps for this position (S = best). Two players a tier apart differ more than two in the same tier.";
   function rankBadges(id) {
@@ -185,6 +187,7 @@
       roleText(p) ? el("p", { class: "ctx", text: roleText(p) }) : null,
       el("p", { class: "ctx", text: practiceText(p) }),
       injuryText(p) ? el("p", { class: "ctx", text: injuryText(p) }) : null,
+      sampleText(p) ? el("p", { class: "ctx", text: sampleText(p) }) : null,
       p.opp ? el("p", { class: "ctx", text: `This week: vs ${p.opp}, matchup score ${p.mu}/100 for ${p.pos}s (100 = easiest defense)` }) : null,
       el("p", { class: "muted small", text: "PPG is a recency-weighted average of his own games (current season weighted heaviest); it is not a week-by-week box score." }));
   }
@@ -465,6 +468,7 @@
         roleText(p) ? el("div", { class: "ctx", text: roleText(p) }) : null,
         el("div", { class: "ctx", text: practiceText(p) }),
         injuryText(p) ? el("div", { class: "ctx", text: injuryText(p) }) : null,
+        sampleText(p) ? el("div", { class: "ctx", text: sampleText(p) }) : null,
         el("label", { class: "small" }, "Your adjustment (ppg) ",
           el("input", { class: "adj", type: "number", step: "0.5", value: adj === undefined ? "" : String(adj), placeholder: "0",
             onchange: (e) => setAdj(id, parseFloat(e.target.value)) })));
@@ -591,6 +595,10 @@
       card.append(el("div", { class: "proposal" },
         el("div", { class: "head" }, "Send ", ...join(names(r.give)), " → get ", ...join(names(r.get)), r.mutual ? el("span", { class: "tag good", text: "win-win" }) : null),
         el("div", { class: "muted small" }, `with ${r.partner.name}`),
+        (() => { // flag proposals that lean on a player with a tiny sample
+          const thin = r.give.concat(r.get).map((id) => state.values[id]).filter((p) => p && p.g !== undefined && p.g !== null && p.g < 3);
+          return thin.length ? el("div", { class: "small", style: "color: var(--bad)" }, "Small sample: " + thin.map((p) => `${p.name} (${p.g} game${p.g === 1 ? "" : "s"})`).join(", ")) : null;
+        })(),
         deltaBar(r.myDelta, r.theirDelta),
         r.fills.length ? el("div", { class: "muted small" }, "Fills: " + r.fills.map((f) => `${f.slot} ${signed(f.gain)}`).join(", ")) : null,
         el("button", { class: "primary", text: "View comparison →", onclick: () => openInCalculator(meId, r) })));

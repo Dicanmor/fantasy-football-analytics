@@ -37,9 +37,9 @@ def test_sleeper_absence_acl_is_season_ending_and_body_part_uses_history():
         "injury": ["Hamstring", "Hamstring", "Ankle"], "starts_on_ir": [True, True, True], "ir_games": [4, 6, 3],
     })
     players = pl.DataFrame({
-        "on_ir": [True, True, True, False, True], "k": [None, None, 5, None, 3],
-        "cur_injury": [None, None, "Hamstring", None, "Unlabeled (IR)"], "remaining": [10, 10, 10, 10, 10],
-        "sl_status": ["IR", "IR", "IR", None, "IR"], "sl_part": ["Knee - ACL", "Hamstring", "Hamstring", None, "Hamstring"],
+        "on_ir": [True, True, True, False, True, False], "k": [None, None, 5, None, 3, None],
+        "cur_injury": [None, None, "Hamstring", None, "Unlabeled (IR)", None], "remaining": [10, 10, 10, 10, 10, 10],
+        "sl_status": ["IR", "IR", "IR", None, "IR", "IR"], "sl_part": ["Knee - ACL", "Hamstring", "Hamstring", None, "Hamstring", "Hamstring"],
     })
     out = sleeper_absence(players, episodes, 2026).to_list()
     assert out[0] == 10.0  # ACL on IR: the rest of the season
@@ -47,3 +47,4 @@ def test_sleeper_absence_acl_is_season_ending_and_body_part_uses_history():
     assert out[2] is None  # has an NFL-report episode already: leave the episode model in charge
     assert out[3] is None  # healthy
     assert out[4] is not None  # NFL report only said "Unlabeled (IR)": Sleeper's body part sharpens it
+    assert out[5] is not None  # Sleeper says IR but the NFL data has not caught up yet (a fresh injury): still counts

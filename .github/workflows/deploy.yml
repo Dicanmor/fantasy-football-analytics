@@ -9,7 +9,7 @@ on:
     paths: ["site/**", "src/**", ".github/workflows/deploy.yml"]
 
 permissions:
-  contents: read
+  contents: write            # the daily run commits data/history (injury label history)
   pages: write
   id-token: write
 
@@ -38,6 +38,13 @@ jobs:
       # The value model does not need play-by-play, so skip the big dataset.
       - run: ff-download --datasets player_stats snap_counts rosters_weekly injuries schedules players ff_opportunity team_stats pbp ngs_receiving ftn_charting
       - run: python -m ff.models.value
+      # Sleeper only exposes the CURRENT injury label, so each run records the changes in data/history (see README).
+      - name: Commit injury label history
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/history
+          git diff --cached --quiet || { git commit -m "data: injury label history [skip ci]" && git pull --rebase && git push; }
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

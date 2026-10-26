@@ -60,11 +60,23 @@ def test_projection_replacement_shrinkage_and_no_leakage():
     assert rookie["proj_ppg"] == pytest.approx(14.0)           # no evidence -> replacement level
 
 
-def test_low_snap_games_are_ignored():
-    rows = [("a", 2025, w, 0.7, 10.0) for w in range(1, 8)] + [("a", 2025, 8, 0.05, 0.0)]  # got hurt early
+def test_low_snap_games_count_so_backups_are_not_flattered():
+    rows = [("a", 2025, w, 0.7, 10.0) for w in range(1, 8)] + [("a", 2025, 8, 0.05, 0.0)]  # a starter hurt early in week 8
     active = pl.DataFrame({"gsis_id": ["a"], "position": ["RB"]})
     proj, _ = project_ppg(_log(rows), pl.DataFrame(), active, League(teams=1), (2025, 9))
-    assert proj["raw_ppg"].item() == pytest.approx(10.0)
+    assert proj["raw_ppg"].item() < 10.0  # the bad low-snap game is in the average (it used to be dropped)
+
+
+def test_role_prior_pulls_a_part_timer_below_replacement_but_not_a_starter():
+    # starters (70% of snaps) score ~15, part-timers (20%) ~4: the fitted line tells them apart
+    rows = [(f"s{i}", 2025, w, 0.7, 15.0) for i in range(6) for w in range(1, 9)]
+    rows += [(f"b{i}", 2025, w, 0.2, 4.0) for i in range(6) for w in range(1, 9)]
+    rows += [("new_b", 2025, 8, 0.2, 14.0)]  # one lucky game, 20% of the snaps
+    active = pl.DataFrame({"gsis_id": [f"s{i}" for i in range(6)] + [f"b{i}" for i in range(6)] + ["new_b"], "position": ["RB"] * 13})
+    proj, repl = project_ppg(_log(rows), pl.DataFrame(), active, League(teams=1), (2025, 9))
+    ppg = {r["gsis_id"]: r["proj_ppg"] for r in proj.iter_rows(named=True)}
+    assert ppg["s0"] == pytest.approx(15.0, abs=0.3)
+    assert ppg["new_b"] < repl["RB"] - 1   # one 14-point game at 20% of the snaps does not make him a replacement-level back
 
 
 def test_expected_remaining_absence():

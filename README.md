@@ -92,6 +92,17 @@ them: ACL or Achilles on IR counts as out for the rest of the season (an assumpt
 and an IR player the NFL report could not label gets the history-based estimate for his Sleeper body part. If Sleeper
 cannot be reached the previous file is used, or the pipeline runs without it.
 
+### Injury label history (our own database)
+
+Sleeper only exposes the **current** label, so every daily run appends to `data/history/sleeper_injuries.csv` the rows
+that **changed** (status, body part or notes) plus a `null` status row when a player is cleared. It is committed by the
+workflow, so it grows on its own from the day it starts (the past is covered by nflverse's weekly reports).
+`data/processed/injury_crosscheck.csv` compares Sleeper with the official NFL report of the week
+(`same` / `differ` / `sleeper_only` / `nfl_only`) to see which source leads.
+
+Tried and rejected: down-weighting games played hurt (on the report and < 50% of his median snaps). Backtest 2022-2025:
+MAE 2.808 -> 2.811 and over-projection grew, so those games are not noise and are kept at full weight.
+
 ## Player value model (v2)
 
 Default league: **PPR, 1 QB / 2 RB / 2 WR / 1 TE / 1 FLEX / 1 K / 1 DEF, 5 bench, 3 IR, 12 teams** (`ff/league.py`). The website does not
@@ -103,7 +114,7 @@ value = max(0, (projected PPG - replacement PPG) x expected games played)      #
 ```
 
 - **Projected PPG:** PPR points per game over the last 3 seasons; weights halve every 17 weeks and **games of the current season count 3x**
-  (roles change in the offseason); games with < 20% of the offensive snaps are ignored; shrunk toward replacement level.
+  (roles change in the offseason); every game he appeared in counts (dropping low-snap games flattered backups); shrunk toward a role-based prior (the position's fantasy-points-vs-snap-share line, read at his own snap share) instead of one replacement level for everyone. Backtest 2022-2025: MAE 3.46 -> 2.65.
 - **Replacement level:** PPG of the player ranked `teams x (starters + flex share + bench share)` at his position (assumption constants in `ff/league.py`).
   K and DEF are streamed, so their replacement is ~1.5 x teams deep.
 - **Expected games:** remaining team games (byes handled) x (1 - base miss rate by position/age) minus the expected remaining absence

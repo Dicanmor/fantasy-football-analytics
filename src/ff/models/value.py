@@ -27,7 +27,7 @@ import json
 
 import polars as pl
 
-from ff.config import PROCESSED_DIR, ROOT
+from ff.config import HISTORY_DIR, PROCESSED_DIR, ROOT
 from ff.data import load_raw
 from ff.features.defense import build_game_metrics, matchup_ratings
 from ff.features.injuries import IR_STATUSES, ON_ROSTER, build_all
@@ -90,7 +90,7 @@ def project_ppg(
     league: League,
     as_of: tuple[int, int],
     half_life: float = 17.0,
-    min_share: float = 0.2,
+    min_share: float = 0.0,
     prior_k: float = 4.0,
     window_seasons: int = 3,
     season_boost: float = 3.0,
@@ -98,15 +98,29 @@ def project_ppg(
 ) -> tuple[pl.DataFrame, dict[str, float]]:
     """Projected PPG for every active player + replacement PPG per position.
 
-    Games where the player had < ``min_share`` of the offensive snaps are ignored (the game he got hurt in,
-    garbage time): they say little about his role. Weights halve every ``half_life`` weeks, and games of the
-    current season count more (roles change over the offseason; in backtests a boost of 3 cut the error ~4%
-    versus no boost). Early in the season that boost is RAMPED UP over a player's first ``boost_ramp_games``
-    current-season games instead of applied at full strength immediately: at 3x from game one, a single boom
-    or bust week (e.g. one bad game in Week 1) got 3x the weight of any single game in the player's whole
-    history, which swings his projection far more than one game should. Backtesting the ramp against the
-    non-ramped version on weeks 1-3 showed a negligible cost in aggregate error (MAE +0.02) for a large drop
-    in that kind of single-game swing, so it is on by default.
+    Tried and rejected: down-weighting games PLAYED HURT (on the injury report and < 50% of his own median snap
+    share). Backtest 2022-2025, weeks 4-12 (10,954 projections): MAE 2.808 -> 2.811 (weight 0.25) and the
+    over-projection of the affected players grew (+0.14 -> +0.39), so injured games are NOT noise: players who
+    play hurt tend to keep underperforming.
+
+    EVERY game he appeared in counts (``min_share`` = 0). It used to skip games with < 20% of the offensive
+    snaps, to avoid punishing a player for the game he got hurt in, but that deletes exactly the bad games of
+    backups: a RB3 with one 40%-snap game that went well and one 6%-snap game that did not looked like a
+    14-ppg back. Backtested on 2022-2025 (7,553 projections, weeks 4-12), the old rule over-projected players
+    who average < 30% of the snaps by +4.3 ppg; counting all games alone cut that to +1.7.
+
+    The prior also depends on his role now. A player's pull toward "league replacement" used to be the same
+    for everyone (so a RB3 with no track record started at a starting-caliber 9 ppg). Now each position gets a
+    line ppr ~ snap share (fitted on the same recent window), and the prior is that line at HIS recency-weighted
+    snap share: continuous, no cutoff (a committee RB1 at 58% of the snaps is simply further up the line than a
+    20% back). With both changes, error on the same backtest fell 3.46 -> 2.65 (backups 4.72 -> 2.27, starters
+    unchanged at ~3.0), and for players with <= 2 games this season 4.57 -> 2.58. Players with no history at all
+    (and positions whose line cannot be fitted) still start at replacement level.
+
+    Weights halve every ``half_life`` weeks, and games of the current season count more (roles change over the
+    offseason; in backtests a boost of 3 cut the error ~4% versus no boost). Early in the season that boost is
+    RAMPED UP over a player's first ``boost_ramp_games`` current-season games instead of applied at full
+    strength immediately, so one boom or bust week does not get 3x the weight of any game in his history.
     """
     season, week = as_of
     now_t = season * WEEKS + week
@@ -136,8 +150,16 @@ def project_ppg(
             pl.len().alias("games"),
             pl.col("w").sum().alias("eff_games"),
             (pl.col("w") * pl.col("ppr")).sum().alias("wp"),
+            (pl.col("w") * pl.col("offense_pct")).sum().alias("wr"),
         )
-        .with_columns(raw_ppg=pl.col("wp") / pl.col("eff_games"))
+        .with_columns(raw_ppg=pl.col("wp") / pl.col("eff_games"), role=pl.col("wr") / pl.col("eff_games"))
+    )
+    # per-position line: fantasy points per game as a function of snap share (ordinary least squares)
+    line = (
+        hist.group_by("position")
+        .agg(slope=(pl.cov("offense_pct", "ppr") / pl.col("offense_pct").var()).fill_nan(None), mx=pl.col("offense_pct").mean(), my=pl.col("ppr").mean())
+        .with_columns(icept=pl.col("my") - pl.col("slope") * pl.col("mx"))
+        .select("position", "slope", "icept")
     )
     table = active.select("gsis_id", "position").join(agg, on="gsis_id", how="left").with_columns(
         pl.col("games").fill_null(0), pl.col("eff_games").fill_null(0.0), pl.col("wp").fill_null(0.0)
@@ -153,10 +175,15 @@ def project_ppg(
 
     repl = pl.DataFrame({"position": list(replacement), "replacement_ppg": list(replacement.values())})
     out = (
-        table.join(repl, on="position")
+        table.join(repl, on="position").join(line, on="position", how="left")
         .with_columns(
-            proj_ppg=(pl.col("wp") + prior_k * pl.col("replacement_ppg")) / (pl.col("eff_games") + prior_k)
+            # prior = the position line at his own snap share; replacement level if there is no usable line or no history
+            prior=pl.coalesce((pl.col("icept") + pl.col("slope") * pl.col("role")).fill_nan(None), pl.col("replacement_ppg")),
         )
+        .with_columns(
+            proj_ppg=(pl.col("wp") + prior_k * pl.col("prior")) / (pl.col("eff_games") + prior_k)
+        )
+        .drop("wr", "role", "slope", "icept", "prior", strict=False)
     )
     return out, replacement
 
@@ -232,7 +259,7 @@ def sleeper_absence(players: pl.DataFrame, episodes: pl.DataFrame, season: int) 
             out.append(None)
         elif is_season_ending(part):
             out.append(float(r["remaining"] or 0))
-        elif (r["k"] is None or r["cur_injury"] == "Unlabeled (IR)") and r["on_ir"]:
+        elif r["k"] is None or r["cur_injury"] == "Unlabeled (IR)":  # Sleeper says IR even if the NFL data has not caught up
             base, k = base_body_part(part), int(r["k"] or 1)
             if (base, k) not in cache:
                 cache[(base, k)] = expected_remaining_absence(episodes, k, season, True, base)
@@ -458,7 +485,7 @@ def build_player_values(
     tables = tables or build_all(season)
 
     active = current_roster(rw, as_of)
-    proj, replacement = project_ppg(tables["log"], tables["directory"], active, league, as_of)
+    proj, replacement = project_ppg(tables["log"], tables["directory"], active, league, as_of, injuries=injuries)
     players = (
         active.join(proj.select("gsis_id", "games", "eff_games", "raw_ppg", "proj_ppg", "replacement_ppg"), on="gsis_id")
         .join(remaining_games(load_raw("schedules"), as_of), on="team", how="left")
@@ -567,6 +594,7 @@ def export_site_data(
                 # model's "games remaining" estimate could be badly off). This is just the latest verified
                 # fact the public report gives, nothing extrapolated from it.
                 "practice": x["last_practice"],
+                "g": x["games"],  # games counted in his projection (the site flags tiny samples)
                 # Sleeper's own injury detail ("Knee - ACL" / "Surgery" / when the news last changed), only for players
                 # Sleeper currently lists as injured; absent otherwise.
                 **({"sl": {"part": x["sl_part"], "note": x["sl_notes"], "ts": x["sl_news"]}} if x["sl_status"] else {}),
@@ -656,8 +684,14 @@ def main(argv: list[str] | None = None) -> None:
     from ff.config import RAW_DIR
     from ff.ingest.sleeper import refresh_injuries
 
-    sleeper = refresh_injuries(RAW_DIR / "sleeper_injuries.parquet")
+    sleeper = refresh_injuries(RAW_DIR / "sleeper_injuries.parquet", history_path=HISTORY_DIR / "sleeper_injuries.csv")
     players, replacement, pools = build_player_values(league, as_of, sleeper=sleeper)
+    if sleeper is not None:  # Sleeper vs the official NFL report for this week (which source leads / contradicts)
+        from ff.ingest.sleeper_history import crosscheck
+        rwk = load_raw("rosters_weekly")
+        ids = rwk.select("gsis_id", "sleeper_id").unique("gsis_id")
+        nfl_wk = load_raw("injuries").filter((pl.col("season") == as_of[0]) & (pl.col("week") == as_of[1]) & (pl.col("game_type") == "REG"))
+        crosscheck(sleeper, nfl_wk, ids).write_csv(PROCESSED_DIR / "injury_crosscheck.csv")
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     players.write_csv(PROCESSED_DIR / "player_values.csv")
     export_site_data(players, pools, league, as_of)

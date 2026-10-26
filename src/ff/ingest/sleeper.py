@@ -54,13 +54,21 @@ def is_season_ending(part: str | None) -> bool:
     return bool(part and SEASON_ENDING.search(part))
 
 
-def refresh_injuries(path: Path, fetch=default_fetch) -> pl.DataFrame | None:
+def refresh_injuries(path: Path, fetch=default_fetch, history_path: Path | None = None, today: str | None = None) -> pl.DataFrame | None:
     """Download and cache today's injury table; fall back to the cached file; ``None`` if neither exists."""
     try:
         frame = injury_frame(fetch())
         if frame.height:
             path.parent.mkdir(parents=True, exist_ok=True)
             frame.write_parquet(path)
+            if history_path is not None:  # our own label history (Sleeper has none): only rows that CHANGED are added
+                from datetime import date
+
+                from ff.ingest.sleeper_history import read_history, save_history, update_history
+                hist, n = update_history(read_history(history_path), frame, today or date.today().isoformat())
+                if n:
+                    save_history(hist, history_path)
+                print(f"sleeper injury history: +{n} rows ({hist.height} total)")
             return frame
     except Exception as e:  # noqa: BLE001 - this source is a bonus, never fail the build over it
         print(f"sleeper injuries not refreshed: {e}")

@@ -933,10 +933,12 @@
       sub: "Average remaining opponent win% vs. a league-average team on a neutral field, site-adjusted. Dashed line = league average (50%). Purple = harder, green = easier.",
       note: "Opponent strength comes from betting-market point spreads (including next week's posted lines) blended with real score margins, solved jointly so each rating accounts for who the team played." },
     QB: { pill: "QB", title: "Remaining QB Schedule", center: 0, pct: true, pos: "QB" },
+    RB: { pill: "RB", title: "Remaining RB Schedule", center: 0, pct: true, pos: "RB" },
+    RB: { pill: "RB", title: "Remaining RB Schedule", center: 0, pct: true, pos: "RB" },
     WR: { pill: "WR", title: "Remaining WR Schedule", center: 0, pct: true, pos: "WR" },
     TE: { pill: "TE", title: "Remaining TE Schedule", center: 0, pct: true, pos: "TE" },
   };
-  ["QB", "WR", "TE"].forEach((p) => {
+  ["QB", "RB", "WR", "TE"].forEach((p) => {
     ROS_VIEWS[p].sub = `How many fewer (or more) fantasy points than average the remaining opponents allow to ${p}s. Dashed line = league average. Purple = tougher defenses ahead, green = softer.`;
     ROS_VIEWS[p].note = "Based on fantasy points allowed to the position (PPR, last two seasons, recent games weigh more). Home/away is not adjusted. Historically this signal is weak, so treat it as context, not a forecast.";
   });
@@ -956,17 +958,17 @@
     $("#ros-title").textContent = view.title; $("#ros-sub").textContent = view.sub;
     const box = clear($("#ros-box")), rows = Object.entries(data[state.ros.kind] || {}).map(([team, r]) => ({ team, v: r.v, n: r.n }));
     if (!rows.length) { $("#ros-note").textContent = "No ROS data yet: run `python -m ff.models.value` to generate site/data/ros.json."; return; }
-    const W = 960, rowH = 24, pad = { l: 40, r: 56, t: 40, b: 34 }, H = pad.t + pad.b + rowH * rows.length;
+    const W = 960, rowH = 18, pad = { l: 40, r: 56, t: 34, b: 28 }, H = pad.t + pad.b + rowH * rows.length;
     const lay = FF.barLayout(rows, { width: W, height: H, pad, center: view.center });
     const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": view.title });
     const fmtV = (v) => (view.pct ? `${v > 0 ? "+" : ""}${v.toFixed(1)}%` : `${v.toFixed(1)}%`);
     lay.ticks.forEach((t) => {
       svg.append(svgEl("line", { class: "grid", x1: t.at, x2: t.at, y1: pad.t, y2: H - pad.b }));
-      svg.append(svgEl("text", { x: t.at, y: H - pad.b + 18, "text-anchor": "middle" }, view.pct ? `${t.v > 0 ? "+" : ""}${t.v}%` : `${t.v}%`));
+      svg.append(svgEl("text", { x: t.at, y: H - pad.b + 16, "text-anchor": "middle" }, view.pct ? `${t.v > 0 ? "+" : ""}${t.v}%` : `${t.v}%`));
     });
     svg.append(svgEl("line", { class: "ros-mid", x1: lay.cx, x2: lay.cx, y1: pad.t, y2: H - pad.b }));
     lay.rows.forEach(({ item, x, y }) => {
-      const hard = item.v > view.center, size = 24;
+      const hard = item.v > view.center, size = 18;
       svg.append(svgEl("line", { class: "ros-bar " + (hard ? "hard" : "easy"), x1: lay.cx, x2: x, y1: y, y2: y }));
       const g = svgEl("g", { class: "ros-row" });
       g.append(svgEl("title", {}, `${item.team}: ${fmtV(item.v)} (${item.n} games left)`));
@@ -980,8 +982,8 @@
       g.append(svgEl("text", { x: x + (hard ? size / 2 + 4 : -size / 2 - 4), y: y + 4, "text-anchor": hard ? "start" : "end" }, fmtV(item.v)));
       svg.append(g);
     });
-    svg.append(svgEl("text", { class: "ros-tag hard", x: W - pad.r, y: 24, "text-anchor": "end" }, "HARD \u2192"));
-    svg.append(svgEl("text", { class: "ros-tag easy", x: pad.l, y: 24 }, "\u2190 EASY"));
+    svg.append(svgEl("text", { class: "ros-tag hard", x: W - pad.r, y: 20, "text-anchor": "end" }, "HARD \u2192"));
+    svg.append(svgEl("text", { class: "ros-tag easy", x: pad.l, y: 20 }, "\u2190 EASY"));
     box.append(svg);
     const asOf = data.as_of ? ` As of week ${data.as_of[1]} of ${data.as_of[0]}.` : "";
     $("#ros-note").textContent = view.note + asOf;

@@ -29,7 +29,7 @@ function makeFetch(mode) {
     "/league/L1/rosters": rosters, "/league/L1/users": users,
     "data/ros.json": (() => {
       const t = ["KC", "BUF", "CIN", "LA", "DAL"], mk = (c, k) => Object.fromEntries(t.map((x, i) => [x, { v: c + (i - 2) * k, n: 10 }]));
-      return { as_of: [2026, 8], overall: mk(50, 1.5), QB: mk(0, 3), WR: mk(0, 3), TE: mk(0, 3) };
+      return { as_of: [2026, 8], overall: mk(50, 1.5), QB: mk(0, 3), RB: mk(0, 3), RB: mk(0, 3), WR: mk(0, 3), TE: mk(0, 3) };
     })(),
   };
   return async (url) => {
@@ -240,7 +240,7 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
   await tick(60);
   assert.ok(!d.querySelector("#tab-ros").classList.contains("hidden"));
   const rosKinds = [...d.querySelectorAll("#ros-kind button")];
-  assert.strictEqual(rosKinds.length, 4, "ROS views: all teams, QB, WR, TE");
+  assert.strictEqual(rosKinds.length, 5, "ROS views: all teams, QB, RB, WR, TE");
   for (let i = 0; i < rosKinds.length; i++) {
     click(w, [...d.querySelectorAll("#ros-kind button")][i]);
     await tick(30);

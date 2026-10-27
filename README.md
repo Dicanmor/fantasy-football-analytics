@@ -94,13 +94,13 @@ cannot be reached the previous file is used, or the pipeline runs without it.
 
 ### ROS tab (rest-of-season schedule)
 
-`ff.models.ros` -> `site/data/ros.json`, four views of "how hard is the schedule each team still has to play":
+`ff.models.ros` -> `site/data/ros.json`, five views of "how hard is the schedule each team still has to play":
 
 - **All teams**: average win% of the remaining opponents vs. a league-average team on a neutral field, adjusted for the site
   of each game. Team ratings are derived from the **betting market** (closing point spreads in nflverse `schedules`,
   including next week's posted lines), blended 70/30 with real score margins and solved jointly with a small ridge and a
   fitted home-field edge; rating gap -> win probability with a normal curve (sd 13.5 points).
-- **QB / WR / TE**: average fantasy points the remaining opponents allow to the position vs. the league
+- **QB / RB / WR / TE**: average fantasy points the remaining opponents allow to the position vs. the league
   (`ff.features.defense.matchup_ratings`), shown as "% fewer points than average" (positive = tougher). Home/away is not
   adjusted, and this signal is weak historically (see Matchup guide), so it is context, not a forecast.
 

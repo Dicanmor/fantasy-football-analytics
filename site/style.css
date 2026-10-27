@@ -237,3 +237,5 @@ input[type="range"] { accent-color: var(--accent); }
 .chart-box text.ros-tag { font-size: 20px; font-weight: 800; paint-order: normal; stroke: none; }
 .chart-box text.ros-tag.hard { fill: var(--hard); } .chart-box text.ros-tag.easy { fill: var(--easy); }
 .chart-box line.ros-mid { stroke: var(--muted); stroke-dasharray: 4 3; }
+#ros-box svg { max-height: 78vh; width: auto; max-width: 100%; margin: 0 auto; }
+.chart-box text.ros-tag { font-size: 16px; }

@@ -8,7 +8,7 @@ Two views, both from data already in the pipeline (nothing scraped):
   (every team's rating accounts for who it played) with a small ridge shrinkage and a fitted home-field edge.
   A rating gap becomes a win probability with a normal curve (NFL margins have sd ~ 13.5 points). The opponent's
   rating is adjusted for the site of each remaining game (a game in his stadium is harder).
-* **By position (QB / WR / TE)**: average of the remaining opponents' fantasy points allowed to that position,
+* **By position (QB / RB / WR / TE)**: average of the remaining opponents' fantasy points allowed to that position,
   relative to the league (``ff.features.defense.matchup_ratings``, recency-weighted). Shown as "% fewer points
   than average": positive = harder defenses ahead. Home/away is not adjusted here.
 
@@ -25,7 +25,7 @@ import polars as pl
 MARKET_WEIGHT = 0.7      # weight of the closing spread vs the real margin for games already played
 RIDGE = 1.0              # shrinks ratings toward 0 (matters early in the season)
 MARGIN_SD = 13.5         # sd of an NFL game margin around the spread, in points
-POSITIONS = ("QB", "WR", "TE")
+POSITIONS = ("QB", "RB", "WR", "TE")
 
 
 def _solve(a: list[list[float]], b: list[float]) -> list[float]:

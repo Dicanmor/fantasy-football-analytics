@@ -46,6 +46,6 @@ def test_position_sos_positive_means_harder_defenses():
 
 
 def test_build_ros_shape():
-    ratings = pl.DataFrame({"defense": TEAMS * 3, "metric": ["pts_QB"] * 4 + ["pts_WR"] * 4 + ["pts_TE"] * 4, "score": [1.0] * 12})
+    ratings = pl.DataFrame({"defense": TEAMS * 4, "metric": ["pts_QB"] * 4 + ["pts_RB"] * 4 + ["pts_WR"] * 4 + ["pts_TE"] * 4, "score": [1.0] * 16})
     d = build_ros(sched(), ratings, (2026, 3))
-    assert set(d) == {"as_of", "overall", "QB", "WR", "TE"} and d["QB"]["AAA"] == {"v": 0.0, "n": 2}
+    assert set(d) == {"as_of", "overall", "QB", "RB", "WR", "TE"} and d["QB"]["AAA"] == {"v": 0.0, "n": 2}

@@ -867,7 +867,9 @@ sleeper_id,observed,sl_status,sl_part,sl_notes,sl_news
 11034,2026-10-27,Out,Wrist,Surgery,1793039717518
 11199,2026-10-27,Out,Coach's Decision,,1793055611775
 11512,2026-10-27,Out,Coach's Decision,,1773253849011
+11592,2026-10-27,IR,Knee - ACL,Surgery,1793126105142
 11646,2026-10-27,Questionable,Shoulder,,1793051710766
+11655,2026-10-27,Out,Hamstring,,1793124605030
 11703,2026-10-27,,,,
 11776,2026-10-27,IR,Quadriceps,,1793051711476
 11793,2026-10-27,Questionable,Knee,,1786753853204
@@ -878,6 +880,8 @@ sleeper_id,observed,sl_status,sl_part,sl_notes,sl_news
 12922,2026-10-27,,,,
 13030,2026-10-27,Questionable,Ankle,,1788222615933
 13224,2026-10-27,Questionable,Ankle,,1792365360624
+13226,2026-10-27,,,,
+13312,2026-10-27,Out,Undisclosed,,1792522538502
 13335,2026-10-27,Out,Coach's Decision,,1793055911735
 13349,2026-10-27,,,,
 4104,2026-10-27,IR,Lower Leg,Fracture,1793064926372
@@ -892,6 +896,7 @@ sleeper_id,observed,sl_status,sl_part,sl_notes,sl_news
 7722,2026-10-27,Questionable,Hand,,1790279721209
 8129,2026-10-27,Questionable,Undisclosed,,1793111404154
 8177,2026-10-27,,,,
+8341,2026-10-27,IR,Groin,,1789485314867
 8389,2026-10-27,Questionable,Triceps,,1793052911613
 8414,2026-10-27,Out,Knee,,1793063126948
 8460,2026-10-27,Out,Ankle,Sprain,1793051711465

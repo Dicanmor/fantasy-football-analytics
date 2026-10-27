@@ -44,6 +44,7 @@
     finder: { focus: [], results: null },
     weeks: null, weeksPromise: null, // lazy-loaded site/data/player_weeks.json (see ensureWeeklyData)
     usage: { data: null, promise: null, team: null, pos: null }, // lazy-loaded site/data/team_usage.json
+    ros: { data: null, promise: null, kind: "overall" }, // lazy-loaded site/data/ros.json
     charts: { data: null, promise: null, kind: "qb", min: {} }, // lazy-loaded site/data/stats_charts.json
     sort: { key: "value", dir: -1 }, pos: "ALL", q: "",
   };
@@ -693,6 +694,7 @@
     });
     moveGlider();
     if (name === "charts") renderCharts();
+    if (name === "ros") renderRos();
   }
 
   // ------------------------------------------------------------------ season stats (usage) tab
@@ -923,6 +925,66 @@
     }
     box.append(svg, tip);
     $("#chart-note").textContent = `${cfg.note} Through week ${data.as_of ? data.as_of.through_week : "?"} of ${data.as_of ? data.as_of.season : ""}. Dotted lines = average of the dots shown; solid gray line = overall trend.`;
+  }
+
+  // ------------------------------------------------------------------ ROS (rest-of-season schedule) tab
+  const ROS_VIEWS = {
+    overall: { pill: "All teams", title: "Remaining Strength of Schedule", center: 50, pct: false,
+      sub: "Average remaining opponent win% vs. a league-average team on a neutral field, site-adjusted. Dashed line = league average (50%). Purple = harder, green = easier.",
+      note: "Opponent strength comes from betting-market point spreads (including next week's posted lines) blended with real score margins, solved jointly so each rating accounts for who the team played." },
+    QB: { pill: "QB", title: "Remaining QB Schedule", center: 0, pct: true, pos: "QB" },
+    WR: { pill: "WR", title: "Remaining WR Schedule", center: 0, pct: true, pos: "WR" },
+    TE: { pill: "TE", title: "Remaining TE Schedule", center: 0, pct: true, pos: "TE" },
+  };
+  ["QB", "WR", "TE"].forEach((p) => {
+    ROS_VIEWS[p].sub = `How many fewer (or more) fantasy points than average the remaining opponents allow to ${p}s. Dashed line = league average. Purple = tougher defenses ahead, green = softer.`;
+    ROS_VIEWS[p].note = "Based on fantasy points allowed to the position (PPR, last two seasons, recent games weigh more). Home/away is not adjusted. Historically this signal is weak, so treat it as context, not a forecast.";
+  });
+  async function ensureRosData() {
+    if (state.ros.data) return state.ros.data;
+    if (!state.ros.promise) {
+      state.ros.promise = fetch("data/ros.json").then((r) => (r.ok ? r.json() : null))
+        .then((d) => { state.ros.data = d || {}; return state.ros.data; }).catch(() => { state.ros.data = {}; return {}; });
+    }
+    return state.ros.promise;
+  }
+  async function renderRos() {
+    const data = await ensureRosData(), view = ROS_VIEWS[state.ros.kind];
+    const kinds = clear($("#ros-kind")), pills = el("div", { class: "pills" });
+    Object.entries(ROS_VIEWS).forEach(([k, v]) => pills.append(el("button", { class: state.ros.kind === k ? "active" : "", text: v.pill, onclick: () => { state.ros.kind = k; renderRos(); } })));
+    kinds.append(el("div", { class: "chart-group" }, [pills]));
+    $("#ros-title").textContent = view.title; $("#ros-sub").textContent = view.sub;
+    const box = clear($("#ros-box")), rows = Object.entries(data[state.ros.kind] || {}).map(([team, r]) => ({ team, v: r.v, n: r.n }));
+    if (!rows.length) { $("#ros-note").textContent = "No ROS data yet: run `python -m ff.models.value` to generate site/data/ros.json."; return; }
+    const W = 960, rowH = 24, pad = { l: 40, r: 56, t: 40, b: 34 }, H = pad.t + pad.b + rowH * rows.length;
+    const lay = FF.barLayout(rows, { width: W, height: H, pad, center: view.center });
+    const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": view.title });
+    const fmtV = (v) => (view.pct ? `${v > 0 ? "+" : ""}${v.toFixed(1)}%` : `${v.toFixed(1)}%`);
+    lay.ticks.forEach((t) => {
+      svg.append(svgEl("line", { class: "grid", x1: t.at, x2: t.at, y1: pad.t, y2: H - pad.b }));
+      svg.append(svgEl("text", { x: t.at, y: H - pad.b + 18, "text-anchor": "middle" }, view.pct ? `${t.v > 0 ? "+" : ""}${t.v}%` : `${t.v}%`));
+    });
+    svg.append(svgEl("line", { class: "ros-mid", x1: lay.cx, x2: lay.cx, y1: pad.t, y2: H - pad.b }));
+    lay.rows.forEach(({ item, x, y }) => {
+      const hard = item.v > view.center, size = 24;
+      svg.append(svgEl("line", { class: "ros-bar " + (hard ? "hard" : "easy"), x1: lay.cx, x2: x, y1: y, y2: y }));
+      const g = svgEl("g", { class: "ros-row" });
+      g.append(svgEl("title", {}, `${item.team}: ${fmtV(item.v)} (${item.n} games left)`));
+      const img = svgEl("image", { x: x - size / 2, y: y - size / 2, width: size, height: size, href: logoUrl(item.team), class: "logo" });
+      let retried = false;
+      img.addEventListener("error", () => {
+        if (!retried) { retried = true; img.setAttribute("href", logoFallback(item.team)); return; }
+        img.remove(); g.append(svgEl("text", { class: "lbl", x, y: y + 3, "text-anchor": "middle" }, item.team));
+      });
+      g.append(img);
+      g.append(svgEl("text", { x: x + (hard ? size / 2 + 4 : -size / 2 - 4), y: y + 4, "text-anchor": hard ? "start" : "end" }, fmtV(item.v)));
+      svg.append(g);
+    });
+    svg.append(svgEl("text", { class: "ros-tag hard", x: W - pad.r, y: 24, "text-anchor": "end" }, "HARD \u2192"));
+    svg.append(svgEl("text", { class: "ros-tag easy", x: pad.l, y: 24 }, "\u2190 EASY"));
+    box.append(svg);
+    const asOf = data.as_of ? ` As of week ${data.as_of[1]} of ${data.as_of[0]}.` : "";
+    $("#ros-note").textContent = view.note + asOf;
   }
 
   function renderAll() {

@@ -461,10 +461,24 @@
     };
   }
 
+  /* Horizontal "lollipop" bars from a center line (ROS schedule chart): rows sorted high value first (top), the
+     domain always contains the center so the bars have a baseline. Returns pixel positions only; app.js draws them. */
+  function barLayout(items, { width, height, pad, center }) {
+    const rows = items.filter((i) => i.v !== null && i.v !== undefined && !Number.isNaN(i.v)).sort((a, b) => b.v - a.v);
+    const [lo, hi] = axisRange(rows.map((r) => r.v).concat([center]));
+    const px = (v) => pad.l + ((v - lo) / (hi - lo)) * (width - pad.l - pad.r);
+    const rowH = rows.length ? (height - pad.t - pad.b) / rows.length : 0;
+    return {
+      cx: px(center), rowH,
+      rows: rows.map((item, i) => ({ item, x: px(item.v), y: pad.t + rowH * (i + 0.5) })),
+      ticks: niceTicks(lo, hi).map((v) => ({ v, at: px(v) })),
+    };
+  }
+
   return {
     replacementRank, replacementLevels, valuesForLeague, pAtLeast, teamPower, powerRankings, slotLabels,
     evaluateValue, evaluateTrade, verdictFor, teamNeeds, findTrades, matchupLabel, parseLeague, buildTeams,
     searchPlayers, createSleeper, SleeperError, FAIR_TOLERANCE, computeRanks, computeTiers, posLabel, applyTrade, leagueRanks,
-    niceTicks, axisRange, linearFit, scatterLayout,
+    niceTicks, axisRange, linearFit, scatterLayout, barLayout,
   };
 });

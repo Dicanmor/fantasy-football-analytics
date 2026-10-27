@@ -27,6 +27,10 @@ function makeFetch(mode) {
     "/league/L1": { league_id: "L1", name: "My League", total_rosters: 4, settings: { reserve_slots: 3, taxi_slots: 1 },
       roster_positions: ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "K", "DEF", "BN", "BN", "BN", "BN", "BN", "IR", "IR", "IR"], scoring_settings: { rec: 1 } },
     "/league/L1/rosters": rosters, "/league/L1/users": users,
+    "data/ros.json": (() => {
+      const t = ["KC", "BUF", "CIN", "LA", "DAL"], mk = (c, k) => Object.fromEntries(t.map((x, i) => [x, { v: c + (i - 2) * k, n: 10 }]));
+      return { as_of: [2026, 8], overall: mk(50, 1.5), QB: mk(0, 3), WR: mk(0, 3), TE: mk(0, 3) };
+    })(),
   };
   return async (url) => {
     if (mode === "offline") throw new TypeError("Failed to fetch");
@@ -230,6 +234,19 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
     assert.ok(d.querySelector("#chart-box svg") || /No chart data/.test(d.querySelector("#chart-note").textContent), "chart " + i + " renders or explains why not");
   }
   assert.deepStrictEqual(errors, [], "charts tab did not throw: " + errors.join("; "));
+
+  // ROS tab: the four views render a bar per team (or explain why not) without throwing
+  click(w, d.querySelector('.tabs button[data-tab="ros"]'));
+  await tick(60);
+  assert.ok(!d.querySelector("#tab-ros").classList.contains("hidden"));
+  const rosKinds = [...d.querySelectorAll("#ros-kind button")];
+  assert.strictEqual(rosKinds.length, 4, "ROS views: all teams, QB, WR, TE");
+  for (let i = 0; i < rosKinds.length; i++) {
+    click(w, [...d.querySelectorAll("#ros-kind button")][i]);
+    await tick(30);
+    assert.strictEqual(d.querySelectorAll("#ros-box svg image.logo").length, 5, "ROS view " + i + " draws one logo per team");
+  }
+  assert.deepStrictEqual(errors, [], "ROS tab did not throw: " + errors.join("; "));
 
   // ---- Sleeper unreachable (e.g. CORS): clear message, page still usable
   ({ w, d, errors } = await open("offline"));

@@ -153,6 +153,13 @@ assert.deepStrictEqual(FF.searchPlayers({ a: p("RB", 10, 1, "Jahmyr Gibbs"), b: 
   assert.strictEqual(lay.points.length, 2, "points missing a coordinate are dropped");
   assert.ok(lay.points[1].x > lay.points[0].x && lay.points[1].y < lay.points[0].y, "bigger y is drawn higher (smaller pixel y)");
   assert.ok(lay.zeroX !== null && lay.zeroY === null, "zero line only on the axis whose data straddles zero (b is all > 0)");
+  // ROS bars
+  const bar = FF.barLayout([{ team: "A", v: 51 }, { team: "B", v: 47 }, { team: "C", v: 54 }, { team: "D", v: null }], { width: 100, height: 30, pad: { l: 0, r: 0, t: 0, b: 0 }, center: 50 });
+  assert.deepStrictEqual(bar.rows.map((r) => r.item.team), ["C", "A", "B"], "hardest (highest) first, null skipped");
+  assert.ok(bar.rows[0].x > bar.cx && bar.rows[2].x < bar.cx, "bars go right of center when above it, left when below");
+  assert.ok(bar.rows[0].y < bar.rows[1].y && Math.abs(bar.rows[0].y - 5) < 1e-9, "rows are evenly spaced from the top");
+  assert.ok(FF.barLayout([{ team: "A", v: 3 }, { team: "B", v: 4 }], { width: 100, height: 20, pad: { l: 0, r: 0, t: 0, b: 0 }, center: 0 }).cx <= 100, "center stays inside the domain");
+
   const fake = (routes) => async (url) => {
     const hit = Object.keys(routes).find((k) => url.endsWith(k));
     return hit ? { ok: true, status: 200, json: async () => routes[hit] } : { ok: false, status: 404, json: async () => null };
@@ -168,3 +175,4 @@ assert.deepStrictEqual(FF.searchPlayers({ a: p("RB", 10, 1, "Jahmyr Gibbs"), b: 
   await assert.rejects(FF.createSleeper("https://x/v1", async () => ({ ok: false, status: 500 })).getUser("a"), (e) => e.kind === "http");
   console.log("core.test.js: all checks passed");
 })().catch((e) => { console.error(e); process.exit(1); });
+

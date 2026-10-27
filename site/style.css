@@ -229,3 +229,11 @@ input[type="range"] { accent-color: var(--accent); }
   .chart-group .pills { flex-wrap: nowrap; overflow-x: auto; width: 100%; scrollbar-width: none; padding-bottom: 2px; }
   .chart-group .pills button { flex: none; white-space: nowrap; }
 }
+
+/* ROS schedule bars */
+:root { --hard: #8a4fa6; --easy: #3f8f5b; }
+.chart-box line.ros-bar.hard { stroke: var(--hard); } .chart-box line.ros-bar.easy { stroke: var(--easy); }
+.chart-box line.ros-bar { stroke-width: 4; stroke-linecap: round; }
+.chart-box text.ros-tag { font-size: 20px; font-weight: 800; paint-order: normal; stroke: none; }
+.chart-box text.ros-tag.hard { fill: var(--hard); } .chart-box text.ros-tag.easy { fill: var(--easy); }
+.chart-box line.ros-mid { stroke: var(--muted); stroke-dasharray: 4 3; }

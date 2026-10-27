@@ -720,6 +720,11 @@ def main(argv: list[str] | None = None) -> None:
 
     export_stats(build_stats(load_raw("pbp", seasons=[as_of[0]]), load_raw("players"), as_of,
                              opportunity=load_raw("ff_opportunity"), ngs=load_raw("ngs_receiving")), SITE_JSON.parent)
+    from ff.features.defense import build_game_metrics, matchup_ratings
+    from ff.models.ros import build_ros, export_ros
+
+    ros_stats = load_raw("player_stats", seasons=[as_of[0] - 1, as_of[0]])
+    export_ros(build_ros(load_raw("schedules"), matchup_ratings(build_game_metrics(ros_stats, "ppr"), as_of), as_of), SITE_JSON.parent)
     try:  # team logos for the Stats charts tab, served from our own site (cosmetic: never fail the build over them)
         import nflreadpy
 

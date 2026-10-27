@@ -42,6 +42,7 @@
       <button role="tab" data-tab="values">Player values</button>
       <button role="tab" data-tab="usage">Season stats</button>
       <button role="tab" data-tab="charts">Stats charts</button>
+      <button role="tab" data-tab="ros">ROS</button>
     </nav>
 
     <section id="tab-power" class="tab"></section>
@@ -124,6 +125,18 @@
         <p class="muted small" id="usage-note"></p>
       </div>
     </section>
+    <section id="tab-ros" class="tab hidden">
+      <div class="card">
+        <h2>Rest of season</h2>
+        <p class="muted small">How hard is the schedule each team still has to play? Pick a view; the dashed line is the league average.</p>
+        <div id="ros-kind" class="chart-groups"></div>
+        <h3 id="ros-title" class="chart-title"></h3>
+        <p class="muted small" id="ros-sub"></p>
+        <div id="ros-box" class="chart-box"></div>
+        <p class="muted small" id="ros-note"></p>
+      </div>
+    </section>
+
     <section id="tab-charts" class="tab hidden">
       <div class="card">
         <h2>Stats charts</h2>

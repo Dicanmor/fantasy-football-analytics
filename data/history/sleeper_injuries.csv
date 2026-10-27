@@ -871,6 +871,7 @@ sleeper_id,observed,sl_status,sl_part,sl_notes,sl_news
 11592,2026-10-27,IR,Knee - ACL,Surgery,1793126105142
 11646,2026-10-27,Questionable,Shoulder,,1793051710766
 11655,2026-10-27,Out,Hamstring,,1793124605030
+11655,2026-10-27,IR,Hamstring,Strain,1793124605030
 11703,2026-10-27,,,,
 11776,2026-10-27,IR,Quadriceps,,1793051711476
 11793,2026-10-27,Questionable,Knee,,1786753853204

@@ -8,7 +8,9 @@ the VALUE:
           taking over is not buried), OR is hurt now, OR missed time hurt earlier this season (Out/Doubtful on the
           report or on IR): a good player coming back from injury keeps the value his numbers say
   tier 1  healthy, never hurt this season, played a little (snap share under ``FEW``)
-  tier 2  healthy, never hurt this season, no snaps at all
+  tier 2  healthy, never hurt this season, no snaps at all - OR no track record whatsoever (no games in the
+          projection window and no snaps this season), even if on IR: with nothing to project they used to get
+          "replacement level" and tied/outranked real players who are slightly below it
 
 Tier 1/2 players are ranked after every tier-0 player (inside a tier, by value), and their expected games are
 multiplied by how often such players really get on the field: ``PLAY_RATE`` is, per position, the share of the
@@ -24,10 +26,10 @@ FEW = 0.2          # average snap share (over team games played) under which a h
 MIN_WEEK = 4       # tiers start at this week
 # position -> (no snaps this season, few snaps) play rate relative to a regular (>= FEW) player; see module docstring
 PLAY_RATE = {
-    "QB": (0.19, 0.27),
-    "RB": (0.16, 0.32),
-    "WR": (0.20, 0.38),
-    "TE": (0.23, 0.42),
+    "QB": (0.15, 0.26),
+    "RB": (0.15, 0.31),
+    "WR": (0.19, 0.36),
+    "TE": (0.20, 0.39),
 }
 
 
@@ -57,7 +59,7 @@ def hurt_ids(injuries: pl.DataFrame, rosters_weekly: pl.DataFrame, as_of: tuple[
 def add_roles(players: pl.DataFrame, log: pl.DataFrame, as_of: tuple[int, int], hurt: pl.DataFrame | None = None) -> pl.DataFrame:
     """Adds ``cur_games``, ``cur_share``, ``was_hurt``, ``tier`` (0/1/2) and ``play_rate`` (multiplier for expected games).
 
-    ``hurt`` = ``hurt_ids(...)``. ``players`` needs ``position``, ``status``, ``report_status``, ``sl_status`` and ``absence_now`` (see ``availability``).
+    ``hurt`` = ``hurt_ids(...)``. ``players`` needs (optionally ``games``, the games behind his projection) ``position``, ``status``, ``report_status``, ``sl_status`` and ``absence_now`` (see ``availability``).
     """
     out = players.join(season_snaps(log, as_of), on="gsis_id", how="left").with_columns(
         pl.col("cur_games").fill_null(0), pl.col("cur_share").fill_null(0.0)
@@ -68,10 +70,12 @@ def add_roles(players: pl.DataFrame, log: pl.DataFrame, as_of: tuple[int, int], 
         out = out.with_columns(was_hurt=pl.lit(False))
     healthy = (
         (pl.col("absence_now").fill_null(0.0) <= 0) & pl.col("sl_status").is_null() & pl.col("report_status").is_null()
-        & (pl.col("status") == "ACT") & ~pl.col("was_hurt")
+        & ~pl.col("status").is_in(["RES", "PUP"]) & ~pl.col("was_hurt")  # INA = game-day inactive, not an injury
     )
+    no_track_record = (pl.col("cur_games") == 0) & (pl.col("games").fill_null(0) == 0) if "games" in out.columns else pl.lit(False)
     tier = (
         pl.when(as_of[1] < MIN_WEEK).then(0)
+        .when(no_track_record).then(2)
         .when(~healthy).then(0)
         .when(pl.col("cur_share") >= FEW).then(0)
         .when(pl.col("cur_games") > 0).then(1)

@@ -134,8 +134,8 @@ value = max(0, (projected PPG - replacement PPG) x expected games played)      #
 - **Role tiers (unused backups):** a healthy backup with no snaps this season used to be valued as if he played every game
   (a QB2 out-ranked real starters). `ff.models.roles` splits players into tier 0 (played a real share of the snaps this
   season or in the last 3 weeks, OR hurt now / missed time hurt this season), tier 1 (healthy, a few snaps) and tier 2
-  (healthy, none). Tier 1/2 rank after every tier 0 player, and their expected games are multiplied by how often such
-  players really play (2018-2025: relative to a regular player, QB 0.27/0.19, RB 0.32/0.16, WR 0.38/0.20, TE 0.42/0.23;
+  (healthy, none). Players with no track record at all (no games in the window, no snaps this year) also go to tier 2, even on IR. Tier 1/2 rank after every tier 0 player, and their expected games are multiplied by how often such
+  players really play (2018-2025: relative to a regular player, QB 0.26/0.15, RB 0.31/0.15, WR 0.36/0.19, TE 0.39/0.20;
   `value.evaluate_play_rates` reproduces it). Tiers start at week 4.
 - **K and DEF:** kicker points and team-defense points computed from play data with a common default scoring (documented in
   `ff/features/special.py`; not read from your league), same recency weighting, shrunk toward the average.

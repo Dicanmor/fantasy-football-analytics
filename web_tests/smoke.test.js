@@ -179,6 +179,11 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
   click(w, [...d.querySelectorAll("#pos-filter button")].find((b) => b.textContent === "TE"));
   const tePos = [...d.querySelectorAll("#values-table tbody tr")].map((r) => r.children[2].textContent); // #, name, then Pos column (rank badge, e.g. "TE5")
   assert.ok(tePos.length > 10 && tePos.every((p) => p.startsWith("TE")));
+  // default order = ranking order: position ranks go up one by one (a block of 0-value players must not shuffle them)
+  const teNums = tePos.map((p) => parseInt(p.slice(2), 10));
+  assert.deepStrictEqual(teNums, teNums.slice().sort((a, b) => a - b), "TE rows are listed in rank order");
+  const overall = [...d.querySelectorAll("#values-table tbody tr")].map((r) => parseInt(r.children[0].textContent, 10));
+  assert.deepStrictEqual(overall, overall.slice().sort((a, b) => a - b), "# column is ascending");
 
   // rank/tier badges and the player-card modal
   const posBadge = d.querySelector("#values-table tbody tr td:nth-child(3) .tag");

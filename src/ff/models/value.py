@@ -693,7 +693,7 @@ def evaluate_play_rates(seasons=range(2018, 2026), weeks=range(4, 13)) -> pl.Dat
                 .with_columns(rate=(pl.col("np") / (pl.col("remaining") - 1)).clip(upper_bound=1.0))
             )
             rows.append(j.select("position", "tier", "rate", "report_status", "status", "was_hurt", "cur_share"))
-    d = pl.concat(rows).filter((pl.col("status") == "ACT") & pl.col("report_status").is_null() & ~pl.col("was_hurt"))
+    d = pl.concat(rows).filter(~pl.col("status").is_in(["RES", "PUP"]) & pl.col("report_status").is_null() & ~pl.col("was_hurt"))
     out = d.group_by("position", "tier").agg(n=pl.len(), rate=pl.col("rate").mean())
     reg = out.filter(pl.col("tier") == 0).select("position", reg_rate="rate")
     return out.join(reg, on="position").with_columns(relative=pl.col("rate") / pl.col("reg_rate")).sort("position", "tier")

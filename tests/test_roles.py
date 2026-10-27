@@ -50,3 +50,14 @@ def test_no_tiers_before_week_four():
 def test_season_snaps_share_is_over_team_games():
     s = season_snaps(log([("a", 2026, 1, 0.8), ("a", 2026, 2, 0.8)]), (2026, 5))   # 4 team games played
     assert abs(s["cur_share"][0] - 0.4) < 1e-9 and s["cur_games"][0] == 2
+
+
+def test_no_track_record_goes_last_even_on_ir_but_injured_veterans_stay():
+    pl_ = players("rookie_ir", "vet_ir", "scratch").with_columns(
+        games=pl.Series([0, 25, 0]), status=pl.Series(["RES", "RES", "INA"]),
+    )
+    out = add_roles(pl_, log([]), AS_OF).sort("gsis_id")
+    got = dict(zip(out["gsis_id"], out["tier"]))
+    assert got["rookie_ir"] == 2      # nothing to project: must not tie with / outrank real players at replacement level
+    assert got["vet_ir"] == 0         # a real player on IR keeps the value his numbers say
+    assert got["scratch"] == 2        # INA (game-day inactive) is not an injury

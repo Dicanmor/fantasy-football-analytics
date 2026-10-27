@@ -46,7 +46,7 @@
     usage: { data: null, promise: null, team: null, pos: null }, // lazy-loaded site/data/team_usage.json
     ros: { data: null, promise: null, kind: "overall" }, // lazy-loaded site/data/ros.json
     charts: { data: null, promise: null, kind: "qb", min: {} }, // lazy-loaded site/data/stats_charts.json
-    sort: { key: "value", dir: -1 }, pos: "ALL", q: "",
+    sort: { key: "rank", dir: 1 }, pos: "ALL", q: "",
   };
   const teamById = (id) => state.teams.find((t) => String(t.rosterId) === String(id));
   // team's roster during a trade simulation (see startSim); real Sleeper roster otherwise
@@ -110,6 +110,12 @@
     return `Injury (Sleeper): ${p.sl.part}${p.sl.note ? " · " + p.sl.note : ""}${when ? " · updated " + when : ""}`;
   }
   /* Tiny samples drive the projection a lot: say so. */
+  /* Within 0.6 ppg of a replacement-level player (and a real sample): his value is ~0 because he IS the replacement, not because he is bad. */
+  const nearReplacement = (p) => {
+    const repl = state.repl && state.repl[p.pos];
+    return !!repl && !p.t && (p.g === undefined || p.g === null || p.g >= 3) && Math.abs(p.ppg - repl) <= 0.6;
+  };
+  const replText = (p) => `Projected ${fmt(p.ppg)} ppg, within 0.6 of a replacement-level ${p.pos} (${fmt(state.repl[p.pos])} ppg in this league), so his value is about zero.`;
   const sampleText = (p) => (p.g !== undefined && p.g !== null && p.g < 3 ? `Small sample: only ${p.g} game${p.g === 1 ? "" : "s"} behind this projection.` : null);
   const label = (p) => `${p.name} · ${p.pos}${p.team ? " " + p.team : ""}`;
   const TIER_TITLE = "Tier: natural groupings in the value gaps for this position (S = best). Two players a tier apart differ more than two in the same tier.";
@@ -189,6 +195,7 @@
       el("p", { class: "ctx", text: practiceText(p) }),
       injuryText(p) ? el("p", { class: "ctx", text: injuryText(p) }) : null,
       sampleText(p) ? el("p", { class: "ctx", text: sampleText(p) }) : null,
+      nearReplacement(p) ? el("p", { class: "ctx", text: replText(p) }) : null,
       p.opp ? el("p", { class: "ctx", text: `This week: vs ${p.opp}, matchup score ${p.mu}/100 for ${p.pos}s (100 = easiest defense)` }) : null,
       el("p", { class: "muted small", text: "PPG is a recency-weighted average of his own games (current season weighted heaviest); it is not a week-by-week box score." }));
   }
@@ -635,7 +642,8 @@
     const { key, dir } = state.sort;
     rows.sort((a, b) => {
       const x = a[key], y = b[key];
-      if (x === y) return 0;
+      const byRank = (a.rank ?? 1e9) - (b.rank ?? 1e9); // ties (e.g. a block of 0-value players) keep the ranking order
+      if (x === y) return byRank;
       if (x === null || x === undefined) return 1;
       if (y === null || y === undefined) return -1;
       return (x > y ? 1 : -1) * dir;
@@ -650,7 +658,7 @@
       el("td", {}, r.tier ? el("span", { class: "tag tier tier-" + r.tier, title: TIER_TITLE, text: r.tier }) : null),
       el("td", { text: r.team || "" }),
       el("td", { class: "num", text: fmt(r.age) }), el("td", { class: "num", text: fmt(r.ppg) }), el("td", { class: "num", text: fmt(r.exp_games) }),
-      el("td", { class: "num", text: fmt(r.value, 0) }),
+      el("td", { class: "num" }, fmt(r.value, 0), nearReplacement(r) ? el("span", { class: "tag repl", title: replText(r), text: "≈ repl" }) : null),
       el("td", { class: "num" }, matchupBadge(r)),
       el("td", { class: "num", title: roleText(r) || "", text: r.share === null || r.share === undefined ? "" : pct(r.share) + (r.mate ? " ↔" : "") }),
       el("td", { class: "num" }, el("input", { class: "adj", type: "number", step: "0.5", value: r.adj === undefined ? "" : String(r.adj), placeholder: "0",

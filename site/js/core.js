@@ -156,13 +156,15 @@
    * than baked into the data file). */
   function computeRanks(values) {
     const byId = Object.entries(values);
-    const overall = byId.slice().sort((a, b) => b[1].value - a[1].value);
+    // unused healthy backups (t = 1 few snaps, 2 none; see ff.models.roles) rank after everybody else; ties by ppg
+    const order = (a, b) => ((a[1].t || 0) - (b[1].t || 0)) || (b[1].value - a[1].value) || ((b[1].ppg || 0) - (a[1].ppg || 0));
+    const overall = byId.slice().sort(order);
     const ranks = {};
     overall.forEach(([id], i) => { ranks[id] = { overall: i + 1, pos: 0 }; });
     const byPos = {};
     byId.forEach(([id, p]) => { (byPos[p.pos] = byPos[p.pos] || []).push([id, p]); });
     Object.values(byPos).forEach((list) => {
-      list.sort((a, b) => b[1].value - a[1].value).forEach(([id], i) => { ranks[id].pos = i + 1; });
+      list.sort(order).forEach(([id], i) => { ranks[id].pos = i + 1; });
     });
     return ranks;
   }

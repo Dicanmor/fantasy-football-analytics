@@ -153,6 +153,10 @@ assert.deepStrictEqual(FF.searchPlayers({ a: p("RB", 10, 1, "Jahmyr Gibbs"), b: 
   assert.strictEqual(lay.points.length, 2, "points missing a coordinate are dropped");
   assert.ok(lay.points[1].x > lay.points[0].x && lay.points[1].y < lay.points[0].y, "bigger y is drawn higher (smaller pixel y)");
   assert.ok(lay.zeroX !== null && lay.zeroY === null, "zero line only on the axis whose data straddles zero (b is all > 0)");
+  // unused healthy backups (t = 1/2) rank after everybody else, even with a higher value
+  const rk = FF.computeRanks({ a: { value: 5, ppg: 10, pos: "QB" }, b: { value: 50, ppg: 17, pos: "QB", t: 2 }, c: { value: 0, ppg: 12, pos: "QB" }, d: { value: 0, ppg: 9, pos: "QB", t: 1 } });
+  assert.deepStrictEqual(["a", "c", "d", "b"].map((k) => rk[k].overall), [1, 2, 3, 4], "tier 0 by value then ppg, then tier 1, then tier 2");
+  assert.deepStrictEqual(["a", "c", "d", "b"].map((k) => rk[k].pos), [1, 2, 3, 4]);
   // ROS bars
   const bar = FF.barLayout([{ team: "A", v: 51 }, { team: "B", v: 47 }, { team: "C", v: 54 }, { team: "D", v: null }], { width: 100, height: 30, pad: { l: 0, r: 0, t: 0, b: 0 }, center: 50 });
   assert.deepStrictEqual(bar.rows.map((r) => r.item.team), ["C", "A", "B"], "hardest (highest) first, null skipped");

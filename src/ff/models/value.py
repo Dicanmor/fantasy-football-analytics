@@ -29,6 +29,7 @@ import polars as pl
 
 from ff.config import HISTORY_DIR, PROCESSED_DIR, ROOT
 from ff.data import load_raw
+from ff.models.roles import add_roles, hurt_ids
 from ff.features.defense import build_game_metrics, matchup_ratings
 from ff.features.injuries import IR_STATUSES, ON_ROSTER, build_all
 from ff.features.special import SLEEPER_TEAM, dst_games, kicker_games, project_special
@@ -454,6 +455,7 @@ def _score(players: pl.DataFrame) -> pl.DataFrame:
             exp_games=(
                 (pl.col("remaining") - pl.col("absence_now").clip(upper_bound=pl.col("remaining"))).clip(lower_bound=0)
                 * (1 - pl.col("base_miss_rate"))
+                * (pl.col("play_rate") if "play_rate" in players.columns else 1.0)  # unused backups rarely play (see ff.models.roles)
             ),
         )
         .with_columns(
@@ -524,8 +526,9 @@ def build_player_values(
         )
     )
 
+    players = add_roles(players, tables["log"], as_of, hurt_ids(injuries, rw, as_of))
     players = _score(players)
-    special = _score(special)
+    special = _score(special).with_columns(tier=pl.lit(0, dtype=pl.Int32))
 
     # ---- context: matchup + role
     mu = matchup_scores(as_of)
@@ -539,11 +542,12 @@ def build_player_values(
     cols = _OUT_COLS
     out = (
         pl.concat([players.select(cols), special.select(cols)], how="vertical_relaxed")
+        # unused healthy backups (tier 1/2, see ff.models.roles) rank after everybody else; ties by projected ppg
+        .sort(["tier", "value", "final_ppg"], descending=[False, True, True], nulls_last=True, maintain_order=True)
         .with_columns(
-            overall_rank=pl.col("value").rank("ordinal", descending=True).cast(pl.Int32),
-            pos_rank=pl.col("value").rank("ordinal", descending=True).over("position").cast(pl.Int32),
+            overall_rank=pl.col("value").cum_count().cast(pl.Int32),
+            pos_rank=pl.col("value").cum_count().over("position").cast(pl.Int32),
         )
-        .sort("overall_rank")
     )
     return out, replacement, pools
 
@@ -553,7 +557,7 @@ _OUT_COLS = [
     "gsis_id", "sleeper_id", "full_name", "position", "team", "age", "status", "report_status", "games", "raw_ppg",
     "proj_ppg", "adj_ppg", "final_ppg", "adj_note", "replacement_ppg", "remaining", "absence_now", "base_miss_rate",
     "most_common_injury", "cur_injury", "last_practice", "sl_status", "sl_part", "sl_notes", "sl_news", "exp_games", "availability", "exp_ppg", "vorp", "value",
-    "opp", "mu", "share_now", "share_prev", "mate", "mate_share",
+    "opp", "mu", "share_now", "share_prev", "mate", "mate_share", "tier",
 ]
 
 
@@ -594,6 +598,7 @@ def export_site_data(
                 # model's "games remaining" estimate could be badly off). This is just the latest verified
                 # fact the public report gives, nothing extrapolated from it.
                 "practice": x["last_practice"],
+                **({"t": x["tier"]} if x["tier"] else {}),  # 1 = few snaps this season, 2 = none (healthy): ranked last
                 "g": x["games"],  # games counted in his projection (the site flags tiny samples)
                 # Sleeper's own injury detail ("Knee - ACL" / "Surgery" / when the news last changed), only for players
                 # Sleeper currently lists as injured; absent otherwise.
@@ -659,6 +664,39 @@ def evaluate_projection(league: League, seasons=(2022, 2023, 2024, 2025), weeks=
             )
         )
     return pl.concat(out)
+
+
+def evaluate_play_rates(seasons=range(2018, 2026), weeks=range(4, 13)) -> pl.DataFrame:
+    """Reproduces ``ff.models.roles.PLAY_RATE``: per position and tier, the share of the remaining games a healthy
+    player played (>= 20% of the snaps), relative to a regular (tier 0, healthy, never hurt) player's share."""
+    rw, inj, sch = load_raw("rosters_weekly"), load_raw("injuries"), load_raw("schedules")
+    log = build_all(2025)["log"]
+    played = log.filter(pl.col("offense_pct") >= 0.2).select("gsis_id", "season", "week")
+    rows = []
+    for season in seasons:
+        for week in weeks:
+            as_of = (season, week)
+            rep = inj.filter((pl.col("season") == season) & (pl.col("week") == week)).select("gsis_id", "report_status").unique("gsis_id")
+            a = (
+                current_roster(rw, as_of).join(rep, on="gsis_id", how="left")
+                .with_columns(sl_status=pl.lit(None, dtype=pl.String), absence_now=pl.lit(0.0))
+            )
+            a = add_roles(a, log, as_of, hurt_ids(inj, rw, as_of))
+            fut = (
+                played.filter((pl.col("season") == season) & (pl.col("week") >= week) & (pl.col("week") <= 17))
+                .group_by("gsis_id").agg(np=pl.len())
+            )
+            j = (
+                a.join(fut, on="gsis_id", how="left").join(remaining_games(sch, as_of), on="team", how="left")
+                .with_columns(pl.col("np").fill_null(0))
+                .filter(pl.col("remaining") > 1)
+                .with_columns(rate=(pl.col("np") / (pl.col("remaining") - 1)).clip(upper_bound=1.0))
+            )
+            rows.append(j.select("position", "tier", "rate", "report_status", "status", "was_hurt", "cur_share"))
+    d = pl.concat(rows).filter((pl.col("status") == "ACT") & pl.col("report_status").is_null() & ~pl.col("was_hurt"))
+    out = d.group_by("position", "tier").agg(n=pl.len(), rate=pl.col("rate").mean())
+    reg = out.filter(pl.col("tier") == 0).select("position", reg_rate="rate")
+    return out.join(reg, on="position").with_columns(relative=pl.col("rate") / pl.col("reg_rate")).sort("position", "tier")
 
 
 # --------------------------------------------------------------------------- CLI

@@ -131,6 +131,12 @@ value = max(0, (projected PPG - replacement PPG) x expected games played)      #
   K and DEF are streamed, so their replacement is ~1.5 x teams deep.
 - **Expected games:** remaining team games (byes handled) x (1 - base miss rate by position/age) minus the expected remaining absence
   if he is injured now (IR vs routine "Out" are different), or the historical miss rate for Questionable / Doubtful.
+- **Role tiers (unused backups):** a healthy backup with no snaps this season used to be valued as if he played every game
+  (a QB2 out-ranked real starters). `ff.models.roles` splits players into tier 0 (played a real share of the snaps this
+  season or in the last 3 weeks, OR hurt now / missed time hurt this season), tier 1 (healthy, a few snaps) and tier 2
+  (healthy, none). Tier 1/2 rank after every tier 0 player, and their expected games are multiplied by how often such
+  players really play (2018-2025: relative to a regular player, QB 0.27/0.19, RB 0.32/0.16, WR 0.38/0.20, TE 0.42/0.23;
+  `value.evaluate_play_rates` reproduces it). Tiers start at week 4.
 - **K and DEF:** kicker points and team-defense points computed from play data with a common default scoring (documented in
   `ff/features/special.py`; not read from your league), same recency weighting, shrunk toward the average.
 - **Context shown next to every player** (context, not part of the projection): this week's opponent and matchup score, the share of

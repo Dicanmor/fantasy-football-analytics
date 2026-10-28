@@ -254,3 +254,10 @@ input[type="range"] { accent-color: var(--accent); }
 .breakdown .bd-take { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.03); }
 .breakdown .bd-take h3 { margin: 0 0 6px; } .breakdown .bd-take p { margin: 6px 0; line-height: 1.5; }
 .breakdown .bd-flips { color: var(--muted); }
+
+/* Desktop only: the translucent select background made Chrome's dropdown list white with light text.
+   Give the options a solid dark background. Phones (touch, no hover) keep their native picker. */
+@media (hover: hover) and (pointer: fine) {
+  select { color-scheme: dark; }
+  select option, select optgroup { background-color: var(--card-solid); color: var(--text); }
+}

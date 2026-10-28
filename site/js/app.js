@@ -484,7 +484,7 @@
   }
 
   const GROUP_LABEL = { League: "League Rank", QB: "QB Rank", RB: "RB Rank", WR: "WR Rank", TE: "TE Rank", K: "K Rank", DEF: "DEF Rank" };
-  function rankTable(give, get) {
+  function leagueRankPair(give, get) {
     const teamsForRanks = state.teams.map((t) => { const r = activeRoster(t.rosterId); return { rosterId: t.rosterId, players: r.players, reserve: r.reserve, taxi: r.taxi }; });
     const afterTeams = teamsForRanks.map((t) => {
       if (String(t.rosterId) === String(state.trade.meId)) return { ...t, players: t.players.filter((id) => !give.includes(id)).concat(get) };
@@ -493,7 +493,12 @@
     });
     const before = FF.leagueRanks(teamsForRanks, state.values, state.ctx, state.trade.meId);
     const after = FF.leagueRanks(afterTeams, state.values, state.ctx, state.trade.meId);
-    if (!before || !after) return null;
+    return before && after ? { before, after } : null;
+  }
+  function rankTable(give, get) {
+    const pair = leagueRankPair(give, get);
+    if (!pair) return null;
+    const { before, after } = pair;
     const rows = Object.keys(before).map((k) => {
       const cls = after[k] < before[k] ? "better" : after[k] > before[k] ? "worse" : "";
       return el("tr", {}, el("td", { text: GROUP_LABEL[k] || k }), el("td", { class: "num", text: before[k] }),
@@ -504,6 +509,32 @@
         el("thead", {}, el("tr", {}, el("th", { text: "" }), el("th", { class: "num", text: "Current" }), el("th", {}), el("th", { class: "num", text: "After Trade" }))),
         el("tbody", {}, rows))),
       el("p", { class: "muted small", text: "1 = best in the league in that group. Green = improves, red = worsens." }));
+  }
+
+  /* "Breakdown" card of the trade result: one collapsible row per angle (who has the edge) plus a plain-language take.
+     ROS and weekly data load lazily; the card fills in once they arrive. */
+  const EDGE_LABEL = { you: "YOU", them: "THEM", even: "EVEN" };
+  function breakdownCard(give, get, full) {
+    const host = el("div", { class: "card breakdown" }, el("h2", { text: "The breakdown" }),
+      el("p", { class: "muted small", text: "YOU = the incoming side has the edge · THEM = the outgoing side does · EVEN = no clear edge. Built from this site's own numbers; it never changes the value verdict." }));
+    const body = el("div", {});
+    host.append(body);
+    const paint = (ros, weeks) => {
+      const pair = full ? leagueRankPair(give, get) : null;
+      const bd = FF.tradeBreakdown({
+        give, get, values: state.values, ranks: state.ranks, ros: ros && ros.overall ? ros : null, weeks: weeks && Object.keys(weeks).length ? weeks : null,
+        full, rankBefore: pair && pair.before, rankAfter: pair && pair.after, repl: state.repl,
+      });
+      clear(body);
+      bd.sections.forEach((x, i) => body.append(el("details", { class: "bd-row", open: i === 0 ? "" : null },
+        el("summary", {}, el("span", { class: "bd-title", text: x.title }), el("span", { class: "bd-badge " + x.edge, text: EDGE_LABEL[x.edge] })),
+        el("p", { class: "bd-text", text: x.text }))));
+      body.append(el("div", { class: "bd-take" }, el("h3", { text: "Take" }), el("p", { text: bd.take }),
+        bd.flips ? el("p", { class: "bd-flips" }, el("b", { text: "The call flips if " }), bd.flips.replace(/^The (value )?call (flips if )?/, "")) : null));
+    };
+    paint(state.ros.data, state.weeks);
+    Promise.all([ensureRosData(), ensureWeeklyData()]).then(([ros, weeks]) => { if (host.isConnected) paint(ros, weeks); });
+    return host;
   }
 
   function renderTradeResult() {
@@ -548,6 +579,7 @@
       el("p", { class: "muted small", text: "The model is history-weighted (current-season games count 3×) but cannot know about offseason changes, committees that just formed, or an improved offense. Use the adjustment box to add your own read and everything above recalculates." }),
       contextCard("You give", give), contextCard("You get", get));
     root.append(card);
+    if (give.length && get.length) root.append(breakdownCard(give, get, full));
   }
 
   function wireSearch(side) {

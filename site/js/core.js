@@ -477,10 +477,158 @@
     };
   }
 
+  // ---------------------------------------------------------------- trade breakdown (explains a trade, never changes its numbers)
+  const ordinal = (n) => { const m = n % 100, d = n % 10; return n + (m >= 11 && m <= 13 ? "th" : d === 1 ? "st" : d === 2 ? "nd" : d === 3 ? "rd" : "th"); };
+  const median = (xs) => { const a = xs.slice().sort((x, y) => x - y), m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+  const POS_ROS = ["QB", "RB", "WR", "TE"];
+  const fmt1 = (n) => (Math.round(n * 10) / 10).toFixed(1);
+  const sgn1 = (n) => (n > 0 ? "+" : "") + fmt1(n);
+  const names = (ps) => ps.map((p) => p.name).join(" + ");
+
+  /* Played weeks of one player from player_weeks.json rows: {n, median, floor, boom, booms(>=20)}; null under 3 games. */
+  function weeklyRange(rows) {
+    const pts = (rows || []).filter((g) => g.fpts !== null && g.fpts !== undefined).map((g) => g.fpts);
+    if (pts.length < 3) return null;
+    return { n: pts.length, median: median(pts), floor: Math.min(...pts), boom: Math.max(...pts), booms: pts.filter((x) => x >= 20).length };
+  }
+  const byeWeek = (rows) => { const r = (rows || []).find((g) => g.opp === null || g.opp === undefined); return r ? r.wk : null; };
+
+  /* Value gap the trade has (|incoming - outgoing|) and the projection the best player on the AHEAD side would need to
+   * fall to for the value verdict to flip. Pure arithmetic on the same formula the site uses for value. */
+  function flipPoint(give, get, values, repl) {
+    const g = sumValue(give, values), t = sumValue(get, values), gap = Math.abs(t - g);
+    const side = t >= g ? get : give;
+    const top = side.map((i) => ({ id: i, ...values[i] })).filter((p) => p.value !== undefined).sort((a, b) => b.value - a.value)[0];
+    if (!top || !(top.exp_games > 0) || gap <= 0) return null;
+    const left = top.value - gap, floorPpg = repl[top.pos] || 0;
+    return { player: top, incoming: t >= g, holds: left <= 0, ppg: left <= 0 ? floorPpg : floorPpg + left / top.exp_games, gap };
+  }
+
+  /* Plain-language breakdown of a trade from MY side: "get" is incoming (YOU), "give" is outgoing (THEM). Every sentence is built
+   * from numbers the site already has (values, ranks, ROS schedule, weekly log, lineup change); nothing is invented.
+   * input: {give, get, values, ranks, ros, weeks, full, rankBefore, rankAfter, repl}. ros/weeks/full/rank* may be null. */
+  function tradeBreakdown({ give, get, values, ranks, ros, weeks, full, rankBefore, rankAfter, repl }) {
+    const P = (ids) => ids.filter((i) => values[i]).map((i) => ({ id: i, ...values[i], rank: ranks && ranks[i] ? ranks[i].pos : null }));
+    const inc = P(get), out = P(give);
+    const sections = [];
+    const edge = (diff, tol) => (diff > tol ? "you" : diff < -tol ? "them" : "even");
+    const lab = (p) => `${p.name} (${p.pos}${p.rank || ""})`;
+
+    // ---- best asset: the hardest single player to replace in the deal
+    const all = inc.map((p) => ({ ...p, mine: true })).concat(out.map((p) => ({ ...p, mine: false }))).sort((a, b) => b.value - a.value || b.ppg - a.ppg);
+    if (all.length) {
+      const b = all[0], second = all.find((p) => p.mine !== b.mine);
+      const rel = second && b.value > 0 ? (b.value - second.value) / b.value : 1;
+      const share = b.share !== null && b.share !== undefined ? `, ${Math.round(b.share * 100)}% of ${b.team}'s rush + target touches` : "";
+      let text = `${lab(b)} is the hardest piece to replace in this deal: ${fmt1(b.value)} pts over replacement at ${fmt1(b.ppg)} ppg${share}.`;
+      if (second) text += ` The best piece on the other side is ${lab(second)} with ${fmt1(second.value)} pts.`;
+      sections.push({ key: "best", title: "Best asset", edge: rel < 0.1 ? "even" : b.mine ? "you" : "them", text });
+    }
+
+    // ---- ROS schedule: how hard are the remaining opponents for each player's position (positive = tougher)
+    if (ros) {
+      const of = (p) => (ros[p.pos] && ros[p.pos][p.team] ? ros[p.pos][p.team].v : null);
+      const score = (ps) => {
+        const rows = ps.filter((p) => POS_ROS.includes(p.pos) && of(p) !== null);
+        const w = rows.reduce((s, p) => s + Math.max(p.value, 1), 0);
+        return rows.length ? { v: rows.reduce((s, p) => s + of(p) * Math.max(p.value, 1), 0) / w, rows } : null;
+      };
+      const a = score(inc), o = score(out);
+      if (a && o) {
+        const diff = o.v - a.v; // outgoing tougher than incoming -> good for me
+        const fmtSide = (s) => s.rows.map((p) => `${p.name} ${sgn1(of(p))}%`).join(", ");
+        let text = `Remaining opponents vs. their position (positive = tougher defenses): incoming ${fmtSide(a)}; outgoing ${fmtSide(o)}.`;
+        if (weeks) {
+          const po = (p) => {
+            const opps = (weeks[p.id] || []).filter((g) => g.wk >= 15 && g.wk <= 17 && g.opp && ros.def && ros.def[p.pos] && ros.def[p.pos][g.opp] !== undefined).map((g) => ros.def[p.pos][g.opp]);
+            return opps.length ? opps.reduce((x, y) => x + y, 0) / opps.length : null;
+          };
+          const pAvg = (ps) => { const r = ps.map(po).filter((x) => x !== null); return r.length ? r.reduce((x, y) => x + y, 0) / r.length : null; };
+          const pi = pAvg(a.rows), pout = pAvg(o.rows);
+          if (pi !== null && pout !== null) text += ` Fantasy-playoff stretch (weeks 15-17): incoming ${sgn1(pi)}% vs outgoing ${sgn1(pout)}%.`;
+        }
+        sections.push({ key: "ros", title: "ROS schedule", edge: edge(diff, 0.5), text });
+      }
+    }
+
+    // ---- weekly range: this season's real weekly scores (median / floor / best week)
+    if (weeks) {
+      const R = (ps) => ps.map((p) => ({ p, r: weeklyRange(weeks[p.id]) })).filter((x) => x.r);
+      const a = R(inc), o = R(out);
+      if (a.length && o.length) {
+        const sum = (xs, k) => xs.reduce((s, x) => s + x.r[k], 0);
+        const diff = sum(a, "median") - sum(o, "median");
+        const line = (xs) => `${xs.map((x) => `${x.p.name} ${fmt1(x.r.median)} median / ${fmt1(x.r.floor)} floor (${x.r.n} gm)`).join(", ")}`;
+        const booms = [...a, ...o].filter((x) => x.r.booms >= 2).map((x) => `${x.p.name} has ${x.r.booms} weeks of 20+`);
+        sections.push({
+          key: "range", title: "Weekly range", edge: edge(diff, 1),
+          text: `PPR points this season. Incoming: ${line(a)} = ${fmt1(sum(a, "median"))} combined median. Outgoing: ${line(o)} = ${fmt1(sum(o, "median"))}.${booms.length ? " " + booms.join("; ") + "." : ""}`,
+        });
+      }
+    }
+
+    // ---- position impact: where my team ranks in the league at each traded position, before -> after
+    if (rankBefore && rankAfter) {
+      const keys = Object.keys(rankBefore).filter((k) => k !== "League" && rankAfter[k] !== undefined);
+      const touched = keys.filter((k) => inc.concat(out).some((p) => p.pos === k || (k === "RB" && p.pos === "FB")));
+      const use = touched.length ? touched : keys;
+      const net = use.reduce((s, k) => s + (rankBefore[k] - rankAfter[k]), 0);
+      const parts = use.map((k) => `${k} ${ordinal(rankBefore[k])} → ${ordinal(rankAfter[k])}`);
+      if (rankBefore.League !== undefined) parts.push(`overall ${ordinal(rankBefore.League)} → ${ordinal(rankAfter.League)}`);
+      sections.push({ key: "position", title: "Position impact", edge: edge(net, 0), text: `Your league rank: ${parts.join(", ")}.` });
+    }
+
+    // ---- lineup impact: who starts and who sits, and the projected points per week
+    let lineupText = null;
+    if (full && full.you) {
+      const ids = (lineup) => lineup.filter((x) => x.player).map((x) => x.player.id);
+      const b4 = ids(full.you.beforeLineup), af = ids(full.you.afterLineup);
+      const nm = (id) => (values[id] ? values[id].name : id);
+      const benched = b4.filter((i) => !af.includes(i)).filter((i) => !give.includes(i)).map(nm);
+      const added = af.filter((i) => !b4.includes(i)).map(nm);
+      const d = full.you.deltaStarters;
+      lineupText = `Your starting lineup projects ${sgn1(d)} pts per week${added.length ? `; ${added.join(" and ")} ${added.length > 1 ? "enter" : "enters"} the lineup` : ""}${benched.length ? `; ${benched.join(" and ")} ${benched.length > 1 ? "move" : "moves"} to the bench` : ""}.`;
+      sections.push({ key: "lineup", title: "Your lineup", edge: edge(d, 0.5), text: lineupText });
+
+      // bye weeks: do the starters after the trade pile up on one bye?
+      if (weeks) {
+        const groups = (list) => { const m = {}; list.forEach((id) => { const w = byeWeek(weeks[id]); if (w) (m[w] = m[w] || []).push(id); }); return m; };
+        const worst = (m) => Object.entries(m).reduce((best, [w, l]) => (l.length > best.n ? { w, n: l.length, ids: l } : best), { w: null, n: 0, ids: [] });
+        const wb = worst(groups(b4)), wa = worst(groups(af));
+        if (wa.n >= 3 || wb.n >= 3) {
+          sections.push({
+            key: "byes", title: "Bye weeks", edge: wa.n > wb.n ? "them" : wa.n < wb.n ? "you" : "even",
+            text: wa.n >= 3 ? `After the trade ${wa.n} of your starters share the week-${wa.w} bye (${wa.ids.map(nm).join(", ")}); before it was ${wb.n}.` : `The trade removes a ${wb.n}-starter pile-up on the week-${wb.w} bye.`,
+          });
+        }
+      }
+    }
+
+    // ---- verdict sentence + what would flip it
+    const base = evaluateValue(give, get, values);
+    const f = base.fairness;
+    const label = f > 0.25 ? "Strong accept" : f > 0.1 ? "Lean accept" : f >= -0.1 ? "Toss up" : f >= -0.25 ? "Lean decline" : "Decline";
+    const flip = repl ? flipPoint(give, get, values, repl) : null;
+    let flips = null;
+    if (flip) {
+      const pl = flip.player, drop = pl.ppg > 0 ? Math.round((1 - flip.ppg / pl.ppg) * 100) : 0;
+      flips = flip.holds
+        ? `The value call holds even if ${pl.name} fell to replacement level (${fmt1(flip.ppg)} ppg).`
+        : `The value call flips if ${pl.name}'s projection falls below ${fmt1(flip.ppg)} ppg (now ${fmt1(pl.ppg)}, about ${drop}% lower)${pl.share !== null && pl.share !== undefined ? `; his current touch share is ${Math.round(pl.share * 100)}%` : ""}.`;
+    }
+    const lead = sections.find((x) => x.key === "best");
+    const against = sections.filter((x) => x.edge !== "even" && x.key !== "best" && (f >= 0 ? x.edge === "them" : x.edge === "you"));
+    let take = `${label}. ${lead ? lead.text.split(". The best piece")[0] + "." : ""}`;
+    if (lineupText) take += ` ${lineupText}`;
+    if (against.length) take += ` Counterweight: ${against.map((x) => x.title.toLowerCase()).join(" and ")} lean${against.length > 1 ? "" : "s"} the other way.`;
+    return { label, sections, take, flips };
+  }
+
+
   return {
     replacementRank, replacementLevels, valuesForLeague, pAtLeast, teamPower, powerRankings, slotLabels,
     evaluateValue, evaluateTrade, verdictFor, teamNeeds, findTrades, matchupLabel, parseLeague, buildTeams,
     searchPlayers, createSleeper, SleeperError, FAIR_TOLERANCE, computeRanks, computeTiers, posLabel, applyTrade, leagueRanks,
-    niceTicks, axisRange, linearFit, scatterLayout, barLayout,
+    niceTicks, axisRange, linearFit, scatterLayout, barLayout, tradeBreakdown, flipPoint, weeklyRange, ordinal,
   };
 });

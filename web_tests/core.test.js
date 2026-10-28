@@ -157,6 +157,38 @@ assert.deepStrictEqual(FF.searchPlayers({ a: p("RB", 10, 1, "Jahmyr Gibbs"), b: 
   const rk = FF.computeRanks({ a: { value: 5, ppg: 10, pos: "QB" }, b: { value: 50, ppg: 17, pos: "QB", t: 2 }, c: { value: 0, ppg: 12, pos: "QB" }, d: { value: 0, ppg: 9, pos: "QB", t: 1 } });
   assert.deepStrictEqual(["a", "c", "d", "b"].map((k) => rk[k].overall), [1, 2, 3, 4], "tier 0 by value then ppg, then tier 1, then tier 2");
   assert.deepStrictEqual(["a", "c", "d", "b"].map((k) => rk[k].pos), [1, 2, 3, 4]);
+  // trade breakdown: plain-language sections built from the numbers (never changes them)
+  {
+    const mk = (name, pos, team, ppg, exp, value, extra = {}) => ({ name, pos, team, ppg, exp_games: exp, value, avail: 0.9, ...extra });
+    const values = {
+      k: mk("Kyren", "RB", "LA", 15, 10, 75, { share: 0.58 }), h: mk("Hubbard", "RB", "CAR", 13, 10, 55, { share: 0.6 }), m: mk("McMillan", "WR", "CAR", 12, 10, 30),
+    };
+    const ranks = { k: { pos: 5 }, h: { pos: 9 }, m: { pos: 20 } };
+    const ros = { RB: { LA: { v: 4 }, CAR: { v: -3 } }, WR: { CAR: { v: -2 } }, def: { RB: { A: 5, B: -5 }, WR: { A: 5 } } };
+    const row = (wk, opp, fpts) => ({ wk, opp, fpts });
+    const weeks = {
+      k: [row(1, "A", 12), row(2, "A", 14), row(3, "A", 22), row(4, "B", 9), row(5, null, null), row(15, "A", null), row(16, "A", null)],
+      h: [row(1, "A", 18), row(2, "A", 20), row(3, "A", 21), row(5, null, null), row(15, "B", null)],
+      m: [row(1, "A", 9), row(2, "A", 11), row(3, "A", 10), row(5, null, null), row(15, "B", null)],
+    };
+    const repl = { RB: 7, WR: 9 };
+    const bd = FF.tradeBreakdown({ give: ["k"], get: ["h", "m"], values, ranks, ros, weeks, full: null, rankBefore: { League: 4, RB: 3, WR: 1 }, rankAfter: { League: 4, RB: 3, WR: 1 }, repl });
+    const by = Object.fromEntries(bd.sections.map((x) => [x.key, x]));
+    assert.strictEqual(by.best.edge, "them", "the best single asset (Kyren, 75) is the one going out");
+    assert.ok(by.best.text.includes("Kyren (RB5)") && by.best.text.includes("58%"));
+    assert.strictEqual(by.ros.edge, "you", "incoming players face easier defenses (CAR -3/-2 vs LA +4)");
+    assert.ok(by.ros.text.includes("weeks 15-17"));
+    assert.strictEqual(by.range.edge, "you", "incoming combined median (20+10) beats outgoing 13");
+    assert.strictEqual(by.position.edge, "even");
+    assert.ok(by.position.text.includes("RB 3rd → 3rd"));
+    assert.strictEqual(bd.label, "Lean accept", "value 85 vs 75 is +11.8% for me");
+  }
+  // flip point: how far the best player on the ahead side must fall for the value verdict to flip
+  {
+    const v = { a: { pos: "RB", value: 60, ppg: 14, exp_games: 10, name: "A" }, b: { pos: "RB", value: 40, ppg: 11, exp_games: 10, name: "B" } };
+    const f = FF.flipPoint(["b"], ["a"], v, { RB: 8 });
+    assert.ok(f.incoming && !f.holds && Math.abs(f.ppg - 12) < 1e-9, "gap 20 leaves 40 pts over 10 games -> replacement 8 + 4 = 12 ppg");
+  }
   // ROS bars
   const bar = FF.barLayout([{ team: "A", v: 51 }, { team: "B", v: 47 }, { team: "C", v: 54 }, { team: "D", v: null }], { width: 100, height: 30, pad: { l: 0, r: 0, t: 0, b: 0 }, center: 50 });
   assert.deepStrictEqual(bar.rows.map((r) => r.item.team), ["C", "A", "B"], "hardest (highest) first, null skipped");

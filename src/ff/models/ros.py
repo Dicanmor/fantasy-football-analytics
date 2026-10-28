@@ -108,6 +108,12 @@ def build_ros(schedules: pl.DataFrame, ratings: pl.DataFrame, as_of: tuple[int, 
     out: dict = {"as_of": list(as_of)}
     for k, f in frames.items():
         out[k] = {r["team"]: {"v": round(r["v"], 2), "n": int(r["n"])} for r in f.iter_rows(named=True)}
+    # per defense, same unit as ``v`` (% fewer fantasy points than average allowed to the position): lets the site
+    # score ANY set of opponents (e.g. the fantasy-playoff weeks 15-17 of one player) without redoing the model
+    out["def"] = {
+        pos: {r["defense"]: round((1 - r["score"]) * 100, 2) for r in ratings.filter(pl.col("metric") == f"pts_{pos}").iter_rows(named=True)}
+        for pos in POSITIONS
+    }
     return out
 
 

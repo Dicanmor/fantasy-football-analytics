@@ -239,6 +239,14 @@ Try it: `python -m ff.models.power rosters.json`.
   first time you open that tab) so it does not slow down the initial page load. The **PROJ** column there is your
   season-long projection repeated every future week, not a week-specific number — see Known limits.
 
+## Trade breakdown
+
+Under the trade calculator's value verdict there is a "Breakdown" panel. It is built from templates over the site's own numbers (no LLM) and never changes the value verdict.
+
+- Best asset, ROS schedule (from `ros.json`, incl. playoff weeks 15-17 via `def`), Weekly range (this season's weekly log, needs 3+ played games), Position impact (league ranks before/after), Your lineup, Bye weeks.
+- Each row says who has the edge (YOU / THEM / EVEN); the Take paragraph adds "the call flips if ..." (the projection at which the top player's value gap closes).
+- Weekly range and Bye weeks depend on `player_weeks.json`.
+
 ## Stats charts
 
 A chart tab in the style of RBSDM, but computed here: `pbp` already carries nflfastR's `epa`, `cpoe` and `success`

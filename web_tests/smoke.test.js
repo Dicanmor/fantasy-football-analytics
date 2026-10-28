@@ -107,6 +107,12 @@ const change = (w, n, v) => { n.value = v; n.dispatchEvent(new w.Event("change",
   assert.ok(d.querySelectorAll(".rank-table tbody tr").length >= 6, "one row per group plus League");
   assert.match(result, /availability/);
   assert.match(result, /Role:/);
+  // breakdown card: collapsible rows with a YOU / THEM / EVEN badge, the take and what flips the call
+  await tick(60);
+  const bdRows = d.querySelectorAll("#trade-result .breakdown details.bd-row");
+  assert.ok(bdRows.length >= 3, "breakdown has several rows (best asset, ROS, position impact, lineup...)");
+  assert.ok([...d.querySelectorAll("#trade-result .bd-badge")].every((b) => ["YOU", "THEM", "EVEN"].includes(b.textContent)));
+  assert.match(d.querySelector("#trade-result .bd-take").textContent, /Take/);
 
   // user adjustment changes the value (ball knowledge) and persists in localStorage
   const giveId = Object.keys(data.players).find((id) => data.players[id].name === d.querySelector("#give-chips .chip").textContent.split(" (")[0]);
